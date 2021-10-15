@@ -33,6 +33,7 @@ import (
 	"github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
+
 	dto "github.com/prometheus/client_model/go"
 	"go.universe.tf/metallb/e2etest/pkg/frr"
 	frrconfig "go.universe.tf/metallb/e2etest/pkg/frr/config"
@@ -104,6 +105,7 @@ var _ = ginkgo.Describe("BGP", func() {
 		cs = f.ClientSet
 		frrContainers, err = createFRRContainers(containersConf)
 		framework.ExpectNoError(err)
+
 	})
 
 	ginkgo.AfterEach(func() {
@@ -121,24 +123,6 @@ var _ = ginkgo.Describe("BGP", func() {
 
 	table.DescribeTable("A service of protocol load balancer should work with", func(ipFamily string, setProtocoltest string) {
 		var allNodes *corev1.NodeList
-		ginkgo.BeforeEach(func() {
-			var peers []peer
-			for _, c := range frrContainers {
-				c.RouterConfig.IPFamily = ipFamily
-				c.NeighborConfig.IPFamily = ipFamily
-				address := c.Ipv4
-				if ipFamily == "ipv6" {
-					address = c.Ipv6
-				}
-				peers = append(peers, peer{
-					Addr:     c.Ipv4,
-					ASN:      c.RouterConfig.ASN,
-					MyASN:    c.NeighborConfig.ASN,
-					Port:     c.RouterConfig.BGPPort,
-					Password: c.RouterConfig.Password,
-				})
-			}
-		})
 		configData := configFile{
 			Pools: []addressPool{
 				{
@@ -150,8 +134,13 @@ var _ = ginkgo.Describe("BGP", func() {
 					},
 				},
 			},
-			Peers: peers,
+			Peers: peersForContainers(frrContainers, ipFamily),
 		}
+		for _, c := range frrContainers {
+			c.RouterConfig.IPFamily = ipFamily
+			c.NeighborConfig.IPFamily = ipFamily
+		}
+
 		for _, c := range frrContainers {
 			pairExternalFRRWithNodes(cs, c)
 		}
@@ -235,9 +224,7 @@ var _ = ginkgo.Describe("BGP", func() {
 		table.DescribeTable("should be exposed by the controller", func(ipFamily string) {
 			poolName := "bgp-test"
 
-			var peers []peer
 			var peerAddrs []string
-
 			for _, c := range frrContainers {
 				c.RouterConfig.IPFamily = ipFamily
 				c.NeighborConfig.IPFamily = ipFamily
@@ -245,19 +232,6 @@ var _ = ginkgo.Describe("BGP", func() {
 				if ipFamily == "ipv6" {
 					address = c.Ipv6
 				}
-				holdTime := ""
-				if i > 0 {
-					holdTime = fmt.Sprintf("%ds", i*180)
-				}
-				peers = append(peers, peer{
-					Addr:     address,
-					ASN:      c.RouterConfig.ASN,
-					MyASN:    c.NeighborConfig.ASN,
-					Port:     c.RouterConfig.BGPPort,
-					RouterID: fmt.Sprintf(baseRouterID, i),
-					Password: c.RouterConfig.Password,
-					HoldTime: holdTime,
-				})
 				peerAddrs = append(peerAddrs, address+fmt.Sprintf(":%d", c.RouterConfig.BGPPort))
 			}
 
@@ -272,7 +246,7 @@ var _ = ginkgo.Describe("BGP", func() {
 						},
 					},
 				},
-				Peers: peers,
+				Peers: peersForContainers(frrContainers, ipFamily),
 			}
 			for _, c := range frrContainers {
 				pairExternalFRRWithNodes(cs, c)
@@ -389,31 +363,12 @@ var _ = ginkgo.Describe("BGP", func() {
 		})
 
 		table.DescribeTable("set different AddressPools ranges modes", func(addressPools []addressPool, ipFamily string) {
-			var peers []peer
-
 			for _, c := range frrContainers {
 				c.RouterConfig.IPFamily = ipFamily
 				c.NeighborConfig.IPFamily = ipFamily
-				address := c.Ipv4
-				if ipFamily == "ipv6" {
-					address = c.Ipv6
-				}
-				holdTime := ""
-				if i > 0 {
-					holdTime = fmt.Sprintf("%ds", i*180)
-				}
-				peers = append(peers, peer{
-					Addr:     address,
-					ASN:      c.RouterConfig.ASN,
-					MyASN:    c.NeighborConfig.ASN,
-					Port:     c.RouterConfig.BGPPort,
-					RouterID: fmt.Sprintf(baseRouterID, i),
-					Password: c.RouterConfig.Password,
-					HoldTime: holdTime,
-				})
 			}
 			configData := configFile{
-				Peers: peers,
+				Peers: peersForContainers(frrContainers, ipFamily),
 				Pools: addressPools,
 			}
 			for _, c := range frrContainers {
@@ -468,6 +423,121 @@ var _ = ginkgo.Describe("BGP", func() {
 					},
 				}}, "ipv6",
 			),
+		)
+	})
+
+	ginkgo.Context("BFD", func() {
+		table.DescribeTable("should work with the given bfd profile", func(bfd bfdProfile, ipFamily string) {
+			configData := configFile{
+				Pools: []addressPool{
+					{
+						Name:     "bgp-test",
+						Protocol: BGP,
+						Addresses: []string{
+							"192.168.10.0/24",
+							"fc00:f853:0ccd:e799::/124",
+						},
+					},
+				},
+				Peers:       withBFD(peersForContainers(frrContainers, ipFamily), bfd.Name),
+				BFDProfiles: []bfdProfile{bfd},
+			}
+			err := updateConfigMap(cs, configData)
+			framework.ExpectNoError(err)
+
+			for _, c := range frrContainers {
+				c.RouterConfig.IPFamily = ipFamily
+				c.NeighborConfig.IPFamily = ipFamily
+				pairExternalFRRWithNodes(cs, c, func(container *frrcontainer.FRR) {
+					container.NeighborConfig.BFDEnabled = true
+				})
+			}
+
+			svc, _ := createServiceWithBackend(cs, f.Namespace.Name, corev1.ServiceExternalTrafficPolicyTypeCluster)
+			defer func() {
+				err := cs.CoreV1().Services(svc.Namespace).Delete(context.TODO(), svc.Name, metav1.DeleteOptions{})
+				framework.ExpectNoError(err)
+			}()
+
+			allNodes, err := cs.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+			framework.ExpectNoError(err)
+
+			for _, c := range frrContainers {
+				validateFRRPeeredWithNodes(cs, c)
+			}
+
+			for _, c := range frrContainers {
+				validateService(cs, svc, allNodes.Items, c, ipFamily)
+			}
+
+			Eventually(func() error {
+				for _, c := range frrContainers {
+					bfdPeers, err := frr.BFDPeers(c.Executor)
+					if err != nil {
+						return err
+					}
+					toCompare := BFDProfileWithDefaults(bfd)
+					err = frr.BFDPeersMatchNodes(allNodes.Items, bfdPeers)
+					if err != nil {
+						return err
+					}
+					for _, peerConfig := range bfdPeers {
+						ginkgo.By(fmt.Sprintf("Checking bfd parameters on %s", peerConfig.Peer))
+						checkBFDConfigPropagated(toCompare, peerConfig)
+					}
+				}
+				return nil
+			}, 4*time.Minute, 1*time.Second).Should(BeNil())
+
+		},
+			table.Entry("IPV4 - default",
+				bfdProfile{
+					Name: "bar",
+				}, "ipv4"),
+			table.Entry("IPV4 - full params",
+				bfdProfile{
+					Name:             "full1",
+					ReceiveInterval:  uint32Ptr(60),
+					TransmitInterval: uint32Ptr(61),
+					EchoInterval:     uint32Ptr(62),
+					EchoMode:         boolPtr(false),
+					PassiveMode:      boolPtr(false),
+					MinimumTTL:       uint32Ptr(254),
+				}, "ipv4"),
+			table.Entry("IPV4 - echo mode enabled",
+				bfdProfile{
+					Name:             "echo",
+					ReceiveInterval:  uint32Ptr(80),
+					TransmitInterval: uint32Ptr(81),
+					EchoInterval:     uint32Ptr(82),
+					EchoMode:         boolPtr(true),
+					PassiveMode:      boolPtr(false),
+					MinimumTTL:       uint32Ptr(254),
+				}, "ipv4"),
+			table.Entry("IPV6 - default",
+				bfdProfile{
+					Name: "bar",
+				}, "ipv6"),
+			table.Entry("IPV6 - full params",
+				bfdProfile{
+					Name:             "full1",
+					ReceiveInterval:  uint32Ptr(60),
+					TransmitInterval: uint32Ptr(61),
+					EchoInterval:     uint32Ptr(62),
+					EchoMode:         boolPtr(false),
+					PassiveMode:      boolPtr(false),
+					MinimumTTL:       uint32Ptr(254),
+				}, "ipv6"),
+			table.Entry("IPV6 - echo mode enabled",
+				bfdProfile{
+					Name:             "echo",
+					ReceiveInterval:  uint32Ptr(80),
+					TransmitInterval: uint32Ptr(81),
+					EchoInterval:     uint32Ptr(82),
+					EchoMode:         boolPtr(true),
+					PassiveMode:      boolPtr(false),
+					MinimumTTL:       uint32Ptr(254),
+				}, "ipv6"),
 		)
 	})
 })
@@ -533,8 +603,12 @@ func validateCounterValue(expectedMax int, metricName string, labels map[string]
 	return nil
 }
 
-func pairExternalFRRWithNodes(cs clientset.Interface, c *frrcontainer.FRR) {
-	bgpConfig, err := frrconfig.BGPPeersForAllNodes(cs, c.NeighborConfig, c.RouterConfig)
+func pairExternalFRRWithNodes(cs clientset.Interface, c *frrcontainer.FRR, modifiers ...func(c *frrcontainer.FRR)) {
+	config := *c
+	for _, m := range modifiers {
+		m(&config)
+	}
+	bgpConfig, err := frrconfig.BGPPeersForAllNodes(cs, config.NeighborConfig, config.RouterConfig)
 	framework.ExpectNoError(err)
 
 	err = c.UpdateBGPConfigFile(bgpConfig)
@@ -648,4 +722,50 @@ func stopFRRContainers(containers []*frrcontainer.FRR) error {
 	}
 
 	return g.Wait()
+}
+
+func peersForContainers(containers []*frrcontainer.FRR, ipFamily string) []peer {
+	var peers []peer
+	for i, c := range frrContainers {
+		address := c.Ipv4
+		if ipFamily == "ipv6" {
+			address = c.Ipv6
+		}
+		holdTime := ""
+		if i > 0 {
+			holdTime = fmt.Sprintf("%ds", i*180)
+		}
+		peers = append(peers, peer{
+			Addr:     address,
+			ASN:      c.RouterConfig.ASN,
+			MyASN:    c.NeighborConfig.ASN,
+			Port:     c.RouterConfig.BGPPort,
+			RouterID: fmt.Sprintf(baseRouterID, i),
+			Password: c.RouterConfig.Password,
+			HoldTime: holdTime,
+		})
+	}
+	return peers
+}
+
+func withBFD(peers []peer, bfdProfile string) []peer {
+	for i := range peers {
+		peers[i].BFDProfile = bfdProfile
+	}
+	return peers
+}
+
+func checkBFDConfigPropagated(nodeConfig bfdProfile, peerConfig frr.BFDPeer) {
+	framework.ExpectEqual(peerConfig.Status, "up")
+	framework.ExpectEqual(peerConfig.RemoteReceiveInterval, int(*nodeConfig.ReceiveInterval))
+	framework.ExpectEqual(peerConfig.RemoteTransmitInterval, int(*nodeConfig.TransmitInterval))
+	framework.ExpectEqual(peerConfig.RemoteEchoInterval, int(*nodeConfig.EchoInterval))
+}
+
+func uint32Ptr(n uint32) *uint32 {
+	return &n
+}
+
+func boolPtr(b bool) *bool {
+	return &b
 }
