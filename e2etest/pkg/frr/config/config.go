@@ -48,9 +48,7 @@ type RouterConfig struct {
 	ASN       uint32
 	Neighbors []*NeighborConfig
 	BGPPort   uint16
-	RouterID  string
 	Password  string
-	HoldTime  string
 	IPFamily  string
 }
 
