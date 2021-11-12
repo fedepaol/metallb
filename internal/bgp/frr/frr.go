@@ -278,9 +278,14 @@ func configBFDProfileToFRR(p *config.BFDProfile) *BFDProfile {
 	res.ReceiveInterval = p.ReceiveInterval
 	res.TransmitInterval = p.TransmitInterval
 	res.DetectMultiplier = p.DetectMultiplier
-	res.EchoInterval = p.EchoInterval
+	res.EchoTransmitInterval = p.EchoTransmitInterval
 	res.EchoMode = p.EchoMode
 	res.PassiveMode = p.PassiveMode
 	res.MinimumTTL = p.MinimumTTL
+	if p.DisableEchoReceive {
+		res.EchoReceiveInterval = "disabled"
+	} else if p.EchoReceiveInterval != nil {
+		res.EchoReceiveInterval = fmt.Sprintf("%d", *p.EchoReceiveInterval)
+	}
 	return res
 }

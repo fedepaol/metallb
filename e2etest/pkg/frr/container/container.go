@@ -19,7 +19,7 @@ const (
 	// BGP configuration directory.
 	frrConfigDir = "config/frr"
 	// FRR routing image.
-	frrImage = "frrouting/frr:v7.5.1"
+	frrImage = "frrouting/frr:v8.1.0"
 	// Host network name.
 	hostNetwork = "host"
 	// FRR container mount destination path.

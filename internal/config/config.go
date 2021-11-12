@@ -80,14 +80,16 @@ type bgpAdvertisement struct {
 }
 
 type bfdProfile struct {
-	Name             string  `yaml:"name"`
-	ReceiveInterval  *uint32 `yaml:"receive-interval"`
-	TransmitInterval *uint32 `yaml:"transmit-interval"`
-	DetectMultiplier *uint32 `yaml:"detect-multiplier"`
-	EchoInterval     *uint32 `yaml:"echo-interval"`
-	EchoMode         bool    `yaml:"echo-mode"`
-	PassiveMode      bool    `yaml:"passive-mode"`
-	MinimumTTL       *uint32 `yaml:"minimum-ttl"`
+	Name                 string  `yaml:"name"`
+	ReceiveInterval      *uint32 `yaml:"receive-interval"`
+	TransmitInterval     *uint32 `yaml:"transmit-interval"`
+	DetectMultiplier     *uint32 `yaml:"detect-multiplier"`
+	DisableEchoReceive   bool    `yaml:"disable-echo-receive"`
+	EchoReceiveInterval  *uint32 `yaml:"echo-receive-interval"`
+	EchoTransmitInterval *uint32 `yaml:"echo-transmit-interval"`
+	EchoMode             bool    `yaml:"echo-mode"`
+	PassiveMode          bool    `yaml:"passive-mode"`
+	MinimumTTL           *uint32 `yaml:"minimum-ttl"`
 }
 
 // Config is a parsed MetalLB configuration.
@@ -175,14 +177,16 @@ type BGPAdvertisement struct {
 
 // BFDProfile describes a BFD profile to be applied to a set of peers.
 type BFDProfile struct {
-	Name             string
-	ReceiveInterval  *uint32
-	TransmitInterval *uint32
-	DetectMultiplier *uint32
-	EchoInterval     *uint32
-	EchoMode         bool
-	PassiveMode      bool
-	MinimumTTL       *uint32
+	Name                 string
+	ReceiveInterval      *uint32
+	TransmitInterval     *uint32
+	DetectMultiplier     *uint32
+	DisableEchoReceive   bool
+	EchoReceiveInterval  *uint32
+	EchoTransmitInterval *uint32
+	EchoMode             bool
+	PassiveMode          bool
+	MinimumTTL           *uint32
 }
 
 func parseNodeSelector(ns *nodeSelector) (labels.Selector, error) {
@@ -445,10 +449,15 @@ func parseBFDProfile(p bfdProfile) (*BFDProfile, error) {
 	if err != nil {
 		return nil, errors.Wrap(err, "invalid minimum ttl value")
 	}
-	res.EchoInterval, err = bfdIntFromConfig(p.EchoInterval, 10, 60000)
+	res.EchoTransmitInterval, err = bfdIntFromConfig(p.EchoTransmitInterval, 10, 60000)
 	if err != nil {
-		return nil, errors.Wrap(err, "invalid minimum ttl value")
+		return nil, errors.Wrap(err, "invalid echo receive transmit value")
 	}
+	res.EchoReceiveInterval, err = bfdIntFromConfig(p.EchoReceiveInterval, 10, 60000)
+	if err != nil {
+		return nil, errors.Wrap(err, "invalid echo receive interval value")
+	}
+	res.DisableEchoReceive = p.DisableEchoReceive
 	res.EchoMode = p.EchoMode
 	res.PassiveMode = p.PassiveMode
 

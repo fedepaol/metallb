@@ -70,14 +70,16 @@ type bgpAdvertisement struct {
 }
 
 type bfdProfile struct {
-	Name             string  `yaml:"name"`
-	ReceiveInterval  *uint32 `yaml:"receive-interval,omitempty"`
-	TransmitInterval *uint32 `yaml:"transmit-interval,omitempty"`
-	DetectMultiplier *uint32 `yaml:"detect-multiplier,omitempty"`
-	EchoInterval     *uint32 `yaml:"echo-interval,omitempty"`
-	EchoMode         *bool   `yaml:"echo-mode,omitempty"`
-	PassiveMode      *bool   `yaml:"passive-mode,omitempty"`
-	MinimumTTL       *uint32 `yaml:"minimum-ttl,omitempty"`
+	Name                 string  `yaml:"name"`
+	ReceiveInterval      *uint32 `yaml:"receive-interval,omitempty"`
+	TransmitInterval     *uint32 `yaml:"transmit-interval,omitempty"`
+	DetectMultiplier     *uint32 `yaml:"detect-multiplier,omitempty"`
+	DisableEchoReceive   bool    `yaml:"disable-echo-receive"`
+	EchoReceiveInterval  *uint32 `yaml:"echo-receive-interval"`
+	EchoTransmitInterval *uint32 `yaml:"echo-transmit-interval"`
+	EchoMode             *bool   `yaml:"echo-mode,omitempty"`
+	PassiveMode          *bool   `yaml:"passive-mode,omitempty"`
+	MinimumTTL           *uint32 `yaml:"minimum-ttl,omitempty"`
 }
 
 func updateConfigMap(cs clientset.Interface, data configFile) error {
@@ -106,7 +108,9 @@ func BFDProfileWithDefaults(profile bfdProfile) bfdProfile {
 	res.ReceiveInterval = valueWithDefault(profile.ReceiveInterval, 300)
 	res.TransmitInterval = valueWithDefault(profile.TransmitInterval, 300)
 	res.DetectMultiplier = valueWithDefault(profile.DetectMultiplier, 3)
-	res.EchoInterval = valueWithDefault(profile.EchoInterval, 50)
+	res.EchoReceiveInterval = valueWithDefault(profile.EchoReceiveInterval, 50)
+	res.EchoTransmitInterval = valueWithDefault(profile.EchoTransmitInterval, 50)
+	res.DisableEchoReceive = profile.DisableEchoReceive
 	res.MinimumTTL = valueWithDefault(profile.MinimumTTL, 254)
 	res.EchoMode = profile.EchoMode
 	res.PassiveMode = profile.PassiveMode

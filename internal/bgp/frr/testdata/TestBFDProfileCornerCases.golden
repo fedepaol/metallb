@@ -10,7 +10,6 @@ bfd
     transmit-interval 70
     detect-multiplier 5
     echo-mode
-    echo-interval 90
     passive-mode
     minimum-ttl 60
     

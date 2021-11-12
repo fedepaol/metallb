@@ -485,6 +485,8 @@ var _ = ginkgo.Describe("BGP", func() {
 						ginkgo.By(fmt.Sprintf("Checking bfd parameters on %s", peerConfig.Peer))
 						checkBFDConfigPropagated(toCompare, peerConfig)
 					}
+					fmt.Println("ZZZ")
+					time.Sleep(5 * time.Minute)
 				}
 				return nil
 			}, 4*time.Minute, 1*time.Second).Should(BeNil())
@@ -499,20 +501,30 @@ var _ = ginkgo.Describe("BGP", func() {
 					Name:             "full1",
 					ReceiveInterval:  uint32Ptr(60),
 					TransmitInterval: uint32Ptr(61),
-					EchoInterval:     uint32Ptr(62),
 					EchoMode:         boolPtr(false),
 					PassiveMode:      boolPtr(false),
 					MinimumTTL:       uint32Ptr(254),
 				}, "ipv4"),
-			table.Entry("IPV4 - echo mode enabled",
+			table.Entry("IPV4 - echo intervals",
 				bfdProfile{
-					Name:             "echo",
-					ReceiveInterval:  uint32Ptr(80),
-					TransmitInterval: uint32Ptr(81),
-					EchoInterval:     uint32Ptr(82),
-					EchoMode:         boolPtr(true),
-					PassiveMode:      boolPtr(false),
-					MinimumTTL:       uint32Ptr(254),
+					Name:                 "echo",
+					ReceiveInterval:      uint32Ptr(80),
+					TransmitInterval:     uint32Ptr(81),
+					EchoMode:             boolPtr(true),
+					PassiveMode:          boolPtr(false),
+					MinimumTTL:           uint32Ptr(254),
+					EchoReceiveInterval:  uint32Ptr(100),
+					EchoTransmitInterval: uint32Ptr(100),
+				}, "ipv4"),
+			table.Entry("IPV4 - echo mode enabled, echo receive disabled",
+				bfdProfile{
+					Name:               "echo",
+					ReceiveInterval:    uint32Ptr(80),
+					TransmitInterval:   uint32Ptr(81),
+					EchoMode:           boolPtr(true),
+					PassiveMode:        boolPtr(false),
+					MinimumTTL:         uint32Ptr(254),
+					DisableEchoReceive: true,
 				}, "ipv4"),
 			table.Entry("IPV6 - default",
 				bfdProfile{
@@ -523,7 +535,6 @@ var _ = ginkgo.Describe("BGP", func() {
 					Name:             "full1",
 					ReceiveInterval:  uint32Ptr(60),
 					TransmitInterval: uint32Ptr(61),
-					EchoInterval:     uint32Ptr(62),
 					EchoMode:         boolPtr(false),
 					PassiveMode:      boolPtr(false),
 					MinimumTTL:       uint32Ptr(254),
@@ -533,7 +544,6 @@ var _ = ginkgo.Describe("BGP", func() {
 					Name:             "echo",
 					ReceiveInterval:  uint32Ptr(80),
 					TransmitInterval: uint32Ptr(81),
-					EchoInterval:     uint32Ptr(82),
 					EchoMode:         boolPtr(true),
 					PassiveMode:      boolPtr(false),
 					MinimumTTL:       uint32Ptr(254),
@@ -759,7 +769,11 @@ func checkBFDConfigPropagated(nodeConfig bfdProfile, peerConfig frr.BFDPeer) {
 	framework.ExpectEqual(peerConfig.Status, "up")
 	framework.ExpectEqual(peerConfig.RemoteReceiveInterval, int(*nodeConfig.ReceiveInterval))
 	framework.ExpectEqual(peerConfig.RemoteTransmitInterval, int(*nodeConfig.TransmitInterval))
-	framework.ExpectEqual(peerConfig.RemoteEchoInterval, int(*nodeConfig.EchoInterval))
+	if !nodeConfig.DisableEchoReceive {
+		framework.ExpectEqual(peerConfig.RemoteEchoReceiveInterval, int(*nodeConfig.EchoReceiveInterval))
+	} else {
+		framework.ExpectEqual(peerConfig.RemoteEchoReceiveInterval, 0)
+	}
 }
 
 func uint32Ptr(n uint32) *uint32 {

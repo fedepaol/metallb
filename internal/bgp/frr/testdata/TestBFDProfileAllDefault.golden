@@ -11,6 +11,7 @@ bfd
     receive-interval 60
     transmit-interval 70
     detect-multiplier 5
-    echo-interval 90
+    echo receive-interval 90
+    echo transmit-interval 95
     minimum-ttl 60
     

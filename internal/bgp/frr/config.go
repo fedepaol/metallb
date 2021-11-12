@@ -85,8 +85,11 @@ bfd
     {{ if .EchoMode -}}
     echo-mode
     {{end -}}
-    {{ if .EchoInterval -}}
-    echo-interval {{.EchoInterval}}
+    {{ if .EchoReceiveInterval -}}
+    echo receive-interval {{.EchoReceiveInterval}}
+    {{end -}}
+    {{ if .EchoTransmitInterval -}}
+    echo transmit-interval {{.EchoTransmitInterval}}
     {{end -}}
     {{ if .PassiveMode -}}
     passive-mode
@@ -111,14 +114,15 @@ type routerConfig struct {
 }
 
 type BFDProfile struct {
-	Name             string
-	ReceiveInterval  *uint32
-	TransmitInterval *uint32
-	DetectMultiplier *uint32
-	EchoInterval     *uint32
-	EchoMode         bool
-	PassiveMode      bool
-	MinimumTTL       *uint32
+	Name                 string
+	ReceiveInterval      *uint32
+	TransmitInterval     *uint32
+	DetectMultiplier     *uint32
+	EchoReceiveInterval  string
+	EchoTransmitInterval *uint32
+	EchoMode             bool
+	PassiveMode          bool
+	MinimumTTL           *uint32
 }
 
 type neighborConfig struct {

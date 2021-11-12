@@ -734,8 +734,10 @@ bfd-profiles:
   receive-interval: 50
   transmit-interval: 51
   detect-multiplier: 52
-  echo-interval: 54
+  echo-transmit-interval: 52
+  echo-receive-interval: 54
   echo-mode: true
+  disable-echo-receive: true
   passive-mode: true
   minimum-ttl: 55
 `,
@@ -756,14 +758,16 @@ bfd-profiles:
 				},
 				BFDProfiles: map[string]*BFDProfile{
 					"nondefault": {
-						Name:             "nondefault",
-						ReceiveInterval:  uint32Ptr(50),
-						DetectMultiplier: uint32Ptr(52),
-						TransmitInterval: uint32Ptr(51),
-						EchoInterval:     uint32Ptr(54),
-						MinimumTTL:       uint32Ptr(55),
-						EchoMode:         true,
-						PassiveMode:      true,
+						Name:                 "nondefault",
+						ReceiveInterval:      uint32Ptr(50),
+						DetectMultiplier:     uint32Ptr(52),
+						TransmitInterval:     uint32Ptr(51),
+						EchoTransmitInterval: uint32Ptr(52),
+						EchoReceiveInterval:  uint32Ptr(54),
+						MinimumTTL:           uint32Ptr(55),
+						EchoMode:             true,
+						PassiveMode:          true,
+						DisableEchoReceive:   true,
 					},
 				},
 			},
