@@ -14,6 +14,9 @@ func validateFRROnlyConfiguration(cfg *config.Config) error {
 		if p.BFDProfile != "" {
 			return fmt.Errorf("peer %s has bfd profile set", p.Addr)
 		}
+		if p.KeepaliveTime != 0 {
+			return fmt.Errorf("peer %s has keepalive set", p.Addr)
+		}
 	}
 	if len(cfg.BFDProfiles) > 0 {
 		return errors.New("bfd profiles section set")

@@ -26,6 +26,7 @@ import (
 
 	"go.universe.tf/metallb/internal/bgp"
 	"go.universe.tf/metallb/internal/config"
+	metallbcfg "go.universe.tf/metallb/internal/config"
 	"go.universe.tf/metallb/internal/k8s"
 	"go.universe.tf/metallb/internal/layer2"
 	"go.universe.tf/metallb/internal/logging"
@@ -133,6 +134,11 @@ func main() {
 		os.Exit(1)
 	}
 
+	validateConfig := metallbcfg.DontValidate
+	if bgpType == "native" {
+		validateConfig = metallbcfg.DiscardFRROnly
+	}
+
 	client, err := k8s.New(&k8s.Config{
 		ProcessName:     "metallb-speaker",
 		ConfigMapName:   *config,
@@ -148,6 +154,7 @@ func main() {
 
 		ServiceChanged: ctrl.SetBalancer,
 		ConfigChanged:  ctrl.SetConfig,
+		ValidateConfig: validateConfig,
 		NodeChanged:    ctrl.SetNode,
 	})
 	if err != nil {
