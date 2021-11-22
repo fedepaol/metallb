@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"net"
 	"strconv"
+	"sync"
 	"time"
 
 	"go.universe.tf/metallb/e2etest/pkg/executor"
@@ -42,6 +43,7 @@ import (
 	bgpfrr "go.universe.tf/metallb/internal/bgp/frr"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/wait"
 	clientset "k8s.io/client-go/kubernetes"
 	"k8s.io/kubernetes/test/e2e/framework"
 	e2eservice "k8s.io/kubernetes/test/e2e/framework/service"
@@ -208,7 +210,7 @@ var _ = ginkgo.Describe("BGP", func() {
 			}
 		}
 	},
-		table.Entry("IPV4 - ExternalTrafficPolicyCluster", "ipv4", "ExternalTrafficPolicyCluster", v4PoolAddresses),
+		table.FEntry("IPV4 - ExternalTrafficPolicyCluster", "ipv4", "ExternalTrafficPolicyCluster", v4PoolAddresses),
 		table.Entry("IPV4 - ExternalTrafficPolicyLocal", "ipv4", "ExternalTrafficPolicyLocal", v4PoolAddresses),
 		table.Entry("IPV4 - FRR running in the speaker POD", "ipv4", "CheckSpeakerFRRPodRunning", v4PoolAddresses),
 		table.Entry("IPV6 - ExternalTrafficPolicyCluster", "ipv6", "ExternalTrafficPolicyCluster", v6PoolAddresses),
@@ -719,6 +721,7 @@ func frrIsPairedOnPods(cs clientset.Interface, n *frrcontainer.FRR, ipFamily str
 }
 
 func createFRRContainers(c []containerConfig) ([]*frrcontainer.FRR, error) {
+	m := sync.Mutex{}
 	frrContainers = make([]*frrcontainer.FRR, 0)
 	g := new(errgroup.Group)
 	for _, conf := range c {
@@ -726,6 +729,27 @@ func createFRRContainers(c []containerConfig) ([]*frrcontainer.FRR, error) {
 		g.Go(func() error {
 			c, err := frrcontainer.Start(conf.name, conf.nc, conf.rc, containersNetwork, hostIPv4, hostIPv6)
 			if c != nil {
+				err = wait.PollImmediate(5*time.Second, time.Second, func() (bool, error) {
+					daemons, err := frr.Daemons(c)
+					if err != nil {
+						return false, err
+					}
+					toFind := map[string]bool{
+						"zebra":    true,
+						"watchfrr": true,
+						"bgpd":     true,
+						"bfdd":     true,
+					}
+					for _, d := range daemons {
+						delete(toFind, d)
+					}
+					if len(toFind) > 0 {
+						return false, fmt.Errorf("Missing daemons %v", toFind)
+					}
+					return true, nil
+				})
+				m.Lock()
+				defer m.Unlock()
 				frrContainers = append(frrContainers, c)
 			}
 			return err
