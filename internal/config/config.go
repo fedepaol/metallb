@@ -51,6 +51,7 @@ type peer struct {
 	NodeSelectors []nodeSelector `yaml:"node-selectors"`
 	Password      string         `yaml:"password"`
 	BFDProfile    string         `yaml:"bfd-profile"`
+	MultiHop      *bool          `yaml:"multi-hop"`
 }
 
 type nodeSelector struct {
@@ -110,6 +111,16 @@ const (
 	Layer2 Proto = "layer2"
 )
 
+// PeerMultiHop specifies if a peer is multi hops away from the speaker.
+type PeerMultiHop string
+
+// MetalLB supported MultiHop modes for peers.
+const (
+	Enabled    PeerMultiHop = "enabled"
+	Disabled   PeerMultiHop = "disabled"
+	AutoDetect PeerMultiHop = "autodetect"
+)
+
 // Peer is the configuration of a BGP peering session.
 type Peer struct {
 	// AS number to use for the local end of the session.
@@ -135,6 +146,8 @@ type Peer struct {
 	Password string
 	// The optional BFD profile to be used for this BGP session
 	BFDProfile string
+	// Optional override if peer is multi-hops away auto-discovery.
+	MultiHop PeerMultiHop
 	// TODO: more BGP session settings
 }
 
@@ -391,6 +404,17 @@ func parsePeer(p peer) (*Peer, error) {
 		password = p.Password
 	}
 
+	var multiHop PeerMultiHop
+	if p.MultiHop == nil {
+		multiHop = AutoDetect
+	} else {
+		if *p.MultiHop {
+			multiHop = Enabled
+		} else {
+			multiHop = Disabled
+		}
+	}
+
 	return &Peer{
 		MyASN:         p.MyASN,
 		ASN:           p.ASN,
@@ -403,6 +427,7 @@ func parsePeer(p peer) (*Peer, error) {
 		NodeSelectors: nodeSels,
 		Password:      password,
 		BFDProfile:    p.BFDProfile,
+		MultiHop:      multiHop,
 	}, nil
 }
 

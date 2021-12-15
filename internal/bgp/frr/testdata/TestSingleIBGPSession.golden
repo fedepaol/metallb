@@ -12,8 +12,7 @@ router bgp 100
 
   bgp router-id 10.1.1.254
 
-  neighbor 10.2.2.254 remote-as 200
-  neighbor 10.2.2.254 ebgp-multihop
+  neighbor 10.2.2.254 remote-as 100
   neighbor 10.2.2.254 port 179
   neighbor 10.2.2.254 timers 1 1
   neighbor 10.2.2.254 password password
@@ -22,5 +21,8 @@ router bgp 100
   address-family ipv4 unicast
     neighbor 10.2.2.254 activate
     neighbor 10.2.2.254 route-map 10.2.2.254-in in
-    network 172.16.1.11/24
+  exit-address-family
+  address-family ipv6 unicast
+    neighbor 10.2.2.254 activate
+    neighbor 10.2.2.254 route-map 10.2.2.254-in in
   exit-address-family

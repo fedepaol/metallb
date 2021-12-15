@@ -58,9 +58,11 @@ peers:
   hold-time: 180s
   router-id: 10.20.30.40
   source-address: 10.20.30.40
+  multi-hop: true
 - my-asn: 100
   peer-asn: 200
   peer-address: 2.3.4.5
+  multi-hop: false
   node-selectors:
   - match-labels:
       foo: bar
@@ -110,6 +112,7 @@ address-pools:
 						KeepaliveTime: 60 * time.Second,
 						RouterID:      net.ParseIP("10.20.30.40"),
 						NodeSelectors: []labels.Selector{labels.Everything()},
+						MultiHop:      Enabled,
 					},
 					{
 						MyASN:         100,
@@ -119,6 +122,7 @@ address-pools:
 						HoldTime:      90 * time.Second,
 						KeepaliveTime: 30 * time.Second,
 						NodeSelectors: []labels.Selector{selector("bar in (quux),foo=bar")},
+						MultiHop:      Disabled,
 					},
 				},
 				Pools: map[string]*Pool{
@@ -202,6 +206,7 @@ peers:
 						HoldTime:      90 * time.Second,
 						KeepaliveTime: 30 * time.Second,
 						NodeSelectors: []labels.Selector{labels.Everything()},
+						MultiHop:      AutoDetect,
 					},
 				},
 				Pools:       map[string]*Pool{},
@@ -287,6 +292,7 @@ peers:
 						HoldTime:      90 * time.Second,
 						KeepaliveTime: 30 * time.Second,
 						NodeSelectors: []labels.Selector{labels.Everything()},
+						MultiHop:      AutoDetect,
 					},
 				},
 				Pools:       map[string]*Pool{},
@@ -674,6 +680,7 @@ peers:
 						KeepaliveTime: 30 * time.Second,
 						NodeSelectors: []labels.Selector{labels.Everything()},
 						BFDProfile:    "default",
+						MultiHop:      AutoDetect,
 					},
 				},
 				Pools: map[string]*Pool{

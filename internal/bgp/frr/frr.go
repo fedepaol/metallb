@@ -11,6 +11,8 @@ import (
 	"time"
 
 	"github.com/go-kit/kit/log"
+	"github.com/go-kit/log/level"
+	"github.com/vishvananda/netlink"
 	"go.universe.tf/metallb/internal/bgp"
 	metallbconfig "go.universe.tf/metallb/internal/config"
 )
@@ -37,6 +39,7 @@ type session struct {
 	password       string
 	advertised     []*bgp.Advertisement
 	bfdProfile     string
+	multiHop       bool
 	sessionManager *sessionManager
 }
 
@@ -117,7 +120,7 @@ func (s *session) Close() error {
 //
 // The session will immediately try to connect and synchronize its
 // local state with the peer.
-func (sm *sessionManager) NewSession(l log.Logger, addr string, srcAddr net.IP, myASN uint32, routerID net.IP, asn uint32, holdTime, keepaliveTime time.Duration, password, myNode, bfdProfile string) (bgp.Session, error) {
+func (sm *sessionManager) NewSession(l log.Logger, addr string, srcAddr net.IP, myASN uint32, routerID net.IP, asn uint32, holdTime, keepaliveTime time.Duration, password, myNode, bfdProfile string, multiHop metallbconfig.PeerMultiHop) (bgp.Session, error) {
 	s := &session{
 		myASN:          myASN,
 		routerID:       routerID,
@@ -134,12 +137,40 @@ func (sm *sessionManager) NewSession(l log.Logger, addr string, srcAddr net.IP, 
 		bfdProfile:     bfdProfile,
 	}
 
+	var isMultiHop bool
+	switch multiHop {
+	case metallbconfig.AutoDetect:
+		var err error
+		isMultiHop, err = isMultiHopsAway(s.addr)
+		if err != nil {
+			return nil, err
+		}
+	case metallbconfig.Enabled:
+		isMultiHop = true
+	case metallbconfig.Disabled:
+		isMultiHop = false
+	}
+
+	s.multiHop = isMultiHop
+
 	_ = sm.addSession(s)
 
 	frrConfig, err := sm.createConfig()
 	if err != nil {
 		_ = sm.deleteSession(s)
 		return nil, err
+	}
+
+	if s.multiHop && s.bfdProfile != "" {
+		for _, profile := range sm.bfdProfiles {
+			if profile.Name == s.bfdProfile && profile.EchoMode {
+				// Logging this instead of rejecting because we're sticking to FRR's behavior.
+				_ = level.Warn(s.logger).Log("op", "NewSession",
+					"msg", "multi-hop and echo-mode do not work together, bfdd will ignore echo-mode for peer",
+					"profile", profile.Name)
+				break
+			}
+		}
 	}
 
 	sm.reloadConfig <- frrConfig
@@ -240,6 +271,7 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 				Password:       s.password,
 				Advertisements: make([]*advertisementConfig, 0),
 				BFDProfile:     s.bfdProfile,
+				MultiHop:       s.multiHop,
 			}
 			if s.srcAddr != nil {
 				neighbor.SrcAddr = s.srcAddr.String()
@@ -302,4 +334,27 @@ func configBFDProfileToFRR(p *metallbconfig.BFDProfile) *BFDProfile {
 	res.PassiveMode = p.PassiveMode
 	res.MinimumTTL = p.MinimumTTL
 	return res
+}
+
+// Returns if peer addr is multi-hops away from us.
+func isMultiHopsAway(addr string) (bool, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, err
+	}
+
+	ip := net.ParseIP(host)
+
+	// Equivalent to `ip route get`.
+	routes, err := netlink.RouteGet(ip)
+
+	if err != nil {
+		return false, err
+	}
+
+	if len(routes) == 0 {
+		return false, fmt.Errorf("no routes found for %s", addr)
+	}
+
+	return routes[0].Gw != nil, nil
 }
