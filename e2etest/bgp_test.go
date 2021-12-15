@@ -1006,27 +1006,6 @@ var _ = ginkgo.Describe("BGP", func() {
 
 })
 
-func createServiceWithBackend(cs clientset.Interface, namespace string, jigName string, tweak ...func(svc *corev1.Service)) (*corev1.Service, *e2eservice.TestJig) {
-	var svc *corev1.Service
-	var err error
-
-	jig := e2eservice.NewTestJig(cs, namespace, jigName)
-	timeout := e2eservice.GetServiceLoadBalancerCreationTimeout(cs)
-	svc, err = jig.CreateLoadBalancerService(timeout, func(svc *corev1.Service) {
-		tweakServicePort(svc)
-		for _, f := range tweak {
-			f(svc)
-		}
-	})
-
-	framework.ExpectNoError(err)
-	_, err = jig.Run(func(rc *corev1.ReplicationController) {
-		tweakRCPort(rc)
-	})
-	framework.ExpectNoError(err)
-	return svc, jig
-}
-
 func validateGaugeValue(expectedValue int, metricName string, labels map[string]string, allMetrics []map[string]*dto.MetricFamily) error {
 	found := false
 	for _, m := range allMetrics {

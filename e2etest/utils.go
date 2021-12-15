@@ -10,8 +10,6 @@ import (
 	"go.universe.tf/metallb/e2etest/pkg/config"
 	"go.universe.tf/metallb/e2etest/pkg/executor"
 	internalconfig "go.universe.tf/metallb/internal/config"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
@@ -49,21 +47,6 @@ func wgetRetry(address string, exc executor.Executor) error {
 		}
 	}
 	return err
-}
-
-func tweakServicePort(svc *v1.Service) {
-	if servicePodPort != 80 {
-		// if servicePodPort is non default, then change service spec.
-		svc.Spec.Ports[0].TargetPort = intstr.FromInt(int(servicePodPort))
-	}
-}
-
-func tweakRCPort(rc *v1.ReplicationController) {
-	if servicePodPort != 80 {
-		// if servicePodPort is non default, then change pod's spec
-		rc.Spec.Template.Spec.Containers[0].Args = []string{"netexec", fmt.Sprintf("--http-port=%d", servicePodPort), fmt.Sprintf("--udp-port=%d", servicePodPort)}
-		rc.Spec.Template.Spec.Containers[0].ReadinessProbe.Handler.HTTPGet.Port = intstr.FromInt(int(servicePodPort))
-	}
 }
 
 func validateIPInRange(addressPools []config.AddressPool, ip string) error {
