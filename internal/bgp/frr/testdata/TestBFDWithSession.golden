@@ -17,8 +17,7 @@ router bgp 100
   neighbor 10.2.2.254 port 179
   neighbor 10.2.2.254 timers 2 1
   neighbor 10.2.2.254 password password
-  neighbor 10.2.2.254 update-source 10.1.1.254 
-  neighbor 10.2.2.254 bfd profile foo
+  neighbor 10.2.2.254 update-source 10.1.1.254
 
   address-family ipv4 unicast
     neighbor 10.2.2.254 activate
@@ -30,6 +29,9 @@ router bgp 100
   exit-address-family
 
 bfd
+ 
+  peer 10.2.2.254 multihop
+    profile foo
   profile bar
     receive-interval 60
     transmit-interval 70

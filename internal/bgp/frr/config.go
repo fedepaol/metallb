@@ -60,9 +60,7 @@ router bgp {{$r.MyASN}}
 {{- end }}
 {{range .Neighbors }}
   neighbor {{.Addr}} remote-as {{.ASN}}
-  {{- if and (ne .ASN $r.MyASN) (.MultiHop) }}
   neighbor {{.Addr}} ebgp-multihop
-  {{- end }}
   {{ if .Port -}}
   neighbor {{.Addr}} port {{.Port}}
   {{- end }}
@@ -73,9 +71,6 @@ router bgp {{$r.MyASN}}
   {{ if .SrcAddr -}}
   neighbor {{.Addr}} update-source {{.SrcAddr}}
   {{- end }}
-{{- if ne .BFDProfile ""}} 
-  neighbor {{.Addr}} bfd profile {{.BFDProfile}}
-{{- end }}
 {{- end }}
 {{range $n := .Neighbors -}}
 {{/* no bgp default ipv4-unicast prevents peering if no address families are defined. We declare an ipv4 one for the peer to make the pairing happen */}}
@@ -103,6 +98,15 @@ router bgp {{$r.MyASN}}
 {{end }}
 {{- if gt (len .BFDProfiles) 0}}
 bfd
+{{range $r := .Routers -}}
+{{- range .Neighbors }}
+{{- if ne .BFDProfile ""}} 
+  peer {{.Addr}} {{- if .MultiHop }} multihop{{end}}
+    profile {{ .BFDProfile }}
+{{- end }}
+{{- end }}
+{{- end }}
+
 {{- range .BFDProfiles }}
   profile {{.Name}}
     {{ if .ReceiveInterval -}}
@@ -190,11 +194,13 @@ func neighborName(peerAddr string, ASN uint32) string {
 func templateConfig(data interface{}) (string, error) {
 	t, err := template.New("FRR Config Template").Parse(configTemplate)
 	if err != nil {
+		fmt.Println("FEDE ", err)
 		return "", err
 	}
 
 	var b bytes.Buffer
 	err = t.Execute(&b, data)
+	fmt.Println("FEDE ", err)
 
 	return b.String(), err
 }
