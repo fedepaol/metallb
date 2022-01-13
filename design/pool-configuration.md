@@ -12,19 +12,29 @@ The way advanced users consume MetalLB is evolving and exposed a need for more c
 For example, the need for isolation and multi-tenancy induced requests for being able to advertise some specific address pools from a subset of the nodes, or
 to allocate them only to a specific namespace, to mention some.
 
+As part of the discussion over an initial version of this proposal we also decided to rethink the MetalLB datamodel, in order to separate different concerns
+handled by MetalLB. This separation is intended to be implemented dropping the configmap support and using Kubernetes CRDs.
+
 ### Goals
 
 * Collect and classify all the requests coming from different issues, in order to have a better understanding
   and an organic implementation, avoiding focus on and implementation of only a specific feature, risking causing conflicts afterwards.
 * Provide a list of the possible configuration enhancements and highlight dependencies and conflicts among them (if any).
 * Highlight the cases where the solution must be BGP or L2 specific
+* Provide a new version of the datamodel, splitting the configuration in different resources responsible to address different concerns, and
+use that as a base for the new configuration degrees proposed in this document.
 
 ### Non-Goals
 
 * Covering only a specific use case.
 * Providing a L2 only or BGP only solution where the problem might be expressed in a more generic way.
 
-## Proposal
+## New data model
+
+Before addressing the new concerns, we will propose a new scheme for configuring MetalLB, which will be used as a starting point
+in the following parts of the proposal. For this reason, it makes sense to have it described in this proposal instead of a separate one.
+
+## Configuration Flexibility Proposal
 
 For all the IPs belonging to an address pool, we need to address three main configuration degrees:
 
@@ -102,14 +112,23 @@ The issues related to this arguments:
 
 ### Risks and Mitigations
 
-#### Conflicts with the current implementation
+#### Regressions
 
-The only current configuration option that will collide with what is being described here is the BGP peer node selector.
+The e2e test suite is wide enough to ensure we have good coverage on metallb's main features. Given the new layout will be functionally equivalent
+to the old one, converting the test suite should give us enough confidence in that regard.
 
-Despite some overlap, it seems reasonable to maintain both filters and the only risk will be that if there is no intersection between filters,
-the service won't be advertised. No risk of non-deterministic behavior seems to be present.
+#### Impacts on the user's configurations
 
-#### Bad configuration
+Deprecating the configmap will have impacts on the user's current configurations. To mitigate this, we may consider having a controller that converts the configmap
+into the CRDs, or provide some offline tool in charge of that (the latter option is more desirable, as it will remove the need of reconciling changes into the configmap).
+
+#### Impacts on users currently using the MetalLB operator
+
+The operator already exposes CRDs, mapped directly to the current configmap entitites.
+Changing the CRDs layout will impact them, and in order to mitigate the behaviour, conversion webhooks will be implemented to support both the old and the new versions
+of the API, until the old version is deprecated.
+
+#### Bad configurations
 
 ##### Service allocation
 
@@ -131,16 +150,7 @@ that can be used to prevent those configurations to be created in first instance
 The peer discovery feature currently being implemented in [this PR](https://github.com/metallb/metallb/pull/593) will introduce a way to
 fetch peers from the node's annotations.
 
-In order to be able to select them, the current proposed structure
-
-```yaml
-from-annotations:
-      - my-asn: example.com/local-asn
-        peer-asn: example.com/remote-asn
-        peer-address: example.com/address
-```
-
-will need to be extended with a name field (as much as the `peers` substructure) so it can be selected.
+With this new structure, the PR will need to be adjusted to extend the BGPPeer object in order to consume the node's annotations instead of hardcoded values.
 
 ### Conflicts with the FRR implementation
 
@@ -148,151 +158,292 @@ All the BGP changes will happen from a "behavioural" point of view. Where needed
 
 ### Not covering all the angles
 
-The risk of not covering all possible cases / permutations is still there. For example, the proposed solution leverages pool customization to provide a
-way to set per service specific properties (i.e. define an AddressPool with bgp-communities and associate it to a single service), while a user may want to
-set custom properties only on one single service.
+The risk of not covering all possible cases / permutations is still there.
 
 That aside, this proposal covers the majority of the issues that were raised by the users (multiple times), and it won't prevent to add a finer level of configuration
-if ever comes the need.
+if ever comes the need. Moreover, providing a straightforward way to separate concerns will make it easier to accomodate new changes, and it will be more clear where
+those new changes must be applied.
 
 ## Design Details
 
+### New datamodel
+
+The proposal is to split the datamodel as follows. Here we describe the datamodel in the form of sample CRDs, and as the golang structure.
+
+#### AddressPool
+
+The addresspool object is the entity responsible for the IP allocation part, regardless of how (and if) the ip is going to be advertised.
+
+Hence, we keep the same structure but remove the bgpAdvertisement section and the Protocol field.
+
+```go
+type addressPool struct {
+  Name              string
+  Addresses         []string
+  AvoidBuggyIPs     bool
+  AutoAssign        *bool
+}
+```
+
+Example CRD
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: AddressPool
+metadata:
+  name: addresspool-sample3
+  namespace: metallb-system
+spec:
+  addresses:
+    - 2002:2:2::1-2002:2:2::100
+    - 172.20.0.100/24
+  autoAssign: false
+  avoidBuggyIPs: true
+
+```
+
+#### BGP Advertisement
+
+The BGP Advertisement object represents the intention of advertising a given IP via the BGP Protocol. It contains properties related to the type of advertisement, a reference to the address pools we want we advertise and the BGP peers we want to perform this advertisement to.
+
+```go
+type bgpAdvertisement struct {
+    Name              string
+  Pools             []string
+  Peers             []string
+  PoolSelector      map[string]string
+  PeerSelector      map[string]string
+  AggregationLength *int
+  LocalPref         *uint32
+  Communities       []string
+}
+```
+
+Example CRD:
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: BgpAdvertisement
+metadata:
+  name: bgpadvertisement
+  namespace: metallb-system
+spec:
+    pools:
+      - pool1
+      - pool2
+    peers:
+      - peer1
+      - peer2
+    - communities:
+        - 65535:65282
+    aggregationLength: 32
+    localPref: 100
+```
+
+Open question: I would like to preserve not having to specify all the ips / peers in order to match the current "ease of configuration" of metallb. One possible way is to assume that all the pools are advertised to all the peers if no selection is specified, the other one is to provide an example using the label selector.
+
+#### L2 Advertisement
+
+The L2 Advertisement object represents the intention of advertising a given IP via L2. Currently, there are no knobs related to L2 advertisement.
+
+```go
+type l2Advertisement struct {
+  Name              string
+  Pools             []string
+  PoolSelector      map[string]string
+}
+```
+
+Example CRD:
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: lsadvertisement
+  namespace: metallb-system
+spec:
+    pools:
+      - pool1
+      - pool2
+```
+
+### BGP Peer
+
+The BGP Peer object represents an external BGP entity we want to establish a session with. It contains the properties of the sessions, and it's a 1:1 mapping of the current bgp peer structure without the node selector. We also add the bfdprofile structure here, as it is part of the session definition.
+
+```go
+type bgpPeer struct {
+  Name              string
+  MyASN         uint32
+  ASN           uint32
+  Addr          string
+  SrcAddr       string
+  Port          uint16
+  HoldTime      string
+  KeepaliveTime string
+  RouterID      string
+  Password      string
+  BFDProfile    string
+  EBGPMultiHop  bool
+}
+
+type bfdProfile struct {
+  Name             string  
+  ReceiveInterval  *uint32 
+  TransmitInterval *uint32 
+  DetectMultiplier *uint32 
+  EchoInterval     *uint32 
+  EchoMode         bool    
+  PassiveMode      bool    
+  MinimumTTL       *uint32 
+}
+```
+
+Example CRDs:
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: BGPPeer
+metadata:
+  name: peer-bfd
+  namespace: metallb-system
+spec:
+  peerAddress: 10.0.0.2
+  peerASN: 64501
+  myASN: 64500
+  routerID: 10.10.10.10
+  peerPort: 1
+  holdTime: "10s"
+  sourceAddress: 1.1.1.1
+  bfdProfile: bfdprofilefull
+
+apiVersion: metallb.io/v1beta1
+kind: BFDProfile
+metadata:
+  name: bfdprofiledefault
+  namespace: metallb-system
+spec:
+  receiveInterval: 35
+  transmitInterval: 35
+  detectMultiplier: 37
+  echoReceiveInterval: 38
+  echoTransmitInterval: 39
+  echoMode: true
+  passiveMode: true
+  minimumTtl: 10
+```  
+
 ### Announcing the IP from a subset of nodes
 
-Extending the address-pool object with an optional node selector field is straightforward:
-
+The nodes to announce from becomes a property of the two Advertisement objects:
 A configuration would look like:
 
 ```yaml
-    peers:
-    - peer-address: 10.0.0.1
-      peer-asn: 64501
-      my-asn: 64500
-      name: foo
-    - peer-address: 10.0.0.1
-      peer-asn: 64501
-      my-asn: 64500
-      name: bar
-    address-pools:
-    - name: default
-      protocol: bgp
-      addresses:
-      - 198.51.100.0/24
-      nodeSelector:
-        matchLabels:
-          network: first
-          network: second
+apiVersion: metallb.io/v1beta1
+kind: BgpAdvertisement
+metadata:
+  name: bgpadvertisement
+  namespace: metallb-system
+spec:
+    pools:
+      - pool1
+      - pool2
+    nodeSelectors:
+    - matchExpressions:
+      - key: kubernetes.io/hostname
+        operator: In
+        values: [hostA, hostB]
 ```
 
-#### Implementation
-
-The [current implementation](https://github.com/metallb/metallb/blob/312b03cd3065687f25274486cd3ff5c79d6f6068/speaker/layer2_controller.go#L45) announces L2 pools only from those nodes
-with a running speaker and an active endpoint for the service.
-
-Implementing the address-pool / node association will be only reflected in a change in the `ShouldAnnounce` logic, eventually extending its signature with all the information needed to understand if the speaker must announce the IP or not.
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: lsadvertisement
+  namespace: metallb-system
+spec:
+    pools:
+      - pool1
+      - pool2
+    nodeSelectors:
+    - matchExpressions:
+      - key: kubernetes.io/hostname
+        operator: In
+        values: [hostA, hostB]
+```
 
 ### Announcing the IP to a subset of BGP neighbors
 
-In order to be able to select a specific set of peers for a given pool we need to:
-
-* add a `name` field to the `Peer` structure so it can be selected by an AddressPool
-* add an optional list of bgp-peers, each one with its own (optional) node selector
-
-A configuration with bgp peer selection only would look like:
+This concern is now addressed by the peer selectors defined in the BGPAdvertisement entity.
+By using both the pools and the peers selector, it will be possible to declare the intent of announcing the IPs of a given AddressPool only to a subset of BGP peers.
 
 ```yaml
+apiVersion: metallb.io/v1beta1
+kind: BgpAdvertisement
+metadata:
+  name: bgpadvertisement
+  namespace: metallb-system
+spec:
+    pools:
+      - pool1
+      - pool2
     peers:
-    - peer-address: 10.0.0.1
-      peer-asn: 64501
-      my-asn: 64500
-      name: foo
-    - peer-address: 10.0.0.1
-      peer-asn: 64501
-      my-asn: 64500
-      name: bar
-    address-pools:
-    - name: default
-      protocol: bgp
-      addresses:
-      - 198.51.100.0/24
-      bgp-peers:
-        - name: foo
-        - name: bar
+      - peer1
+      - peer2
+    - communities:
+        - 65535:65282
+    aggregationLength: 32
+    localPref: 100
 ```
-
-A configuration where bgp selection and nodes allocation would look like:
-
-```yaml
-    peers:
-    - peer-address: 10.0.0.1
-      peer-asn: 64501
-      my-asn: 64500
-      name: foo
-    - peer-address: 10.0.0.1
-      peer-asn: 64501
-      my-asn: 64500
-      name: bar
-    address-pools:
-    - name: default
-      protocol: bgp
-      addresses:
-      - 198.51.100.0/24
-      bgp-peers:
-        - name: foo
-        nodeSelector:
-          matchLabels:
-            network: first
-        - name: bar
-        nodeSelector:
-          matchLabels:
-            network: second
-```
-
-#### Implementation
-
-A service using an IP from a pool with a list of bgp-peers will not advertise the IP to peers outside that list.
-
-The BGP controller already contains a mapping between services and their BGP advertisement parameters taken from the address pool configuration.
-
-The structure is being filled [here](https://github.com/metallb/metallb/blob/5d236989e61683daf1eaad00777b81ce7dd98c5d/speaker/bgp_controller.go#L218).
-
-The idea here is to extend that with the list of peers that IP must be advertised to. In case the peer comes with a node selector, extra logic on the current node and the node selector will be in place to understand if to put the peer in the list of not.
 
 #### Not announcing the IP
 
-A new `none` value for the protocol will be introduced.
-
-```yaml
-    address-pools:
-    - name: default
-      protocol: none
-      addresses:
-      - 198.51.100.0/24
-```
-
-In this scenario, the pool will be used to assign the IP to a given service, but no advertisement will made.
+This concern will be addressed by defining an AddressPool object not referenced by any Advertisement object.
 
 ### Using a given AddressPool only for a subset of services
 
-The idea is to be able to reduce the scope of a particular AddressPool to a set of namespaces and services.
+The idea is to be able to reduce the scope of a particular AddressPool to a set of namespaces and services, by adding an optional namespace / service selector.
 
-```yaml
-    address-pools:
-    - name: default
-      protocol: bgp
-      addresses:
-      - 198.51.100.0/24
-      allocate-to:
-        priority: 50
-        namespaces:
-          - namespaceA
-          - namespaceB
-        labelSelector:
-          matchLabels:
-            tenant: foo
+```go
+type addressPool struct {
+  Name              string
+  Addresses         []string
+  AvoidBuggyIPs     bool
+  AutoAssign        *bool
+  AllocateTo        serviceAllocation
+}
+
+type serviceAllocation struct {
+  Priority          int
+  Namespaces        []string
+  NamespaceSelector map[string]string
+  ServiceSelector   map[string]string
+}
 ```
 
-Both the namespaces and the label selector are optional.
+Example CRD
+
+```yaml
+apiVersion: metallb.io/v1beta1
+kind: AddressPool
+metadata:
+  name: addresspool-sample3
+  namespace: metallb-system
+spec:
+  addresses:
+    - 2002:2:2::1-2002:2:2::100
+    - 172.20.0.100/24
+  autoAssign: false
+  avoidBuggyIPs: true
+  allocateTo:
+    priority: 50
+      namespaces:
+        - namespaceA
+        - namespaceB
+      serviceSelector:
+          tenant: foo
+```
 
 The controller will use the pool with highest priority in case of multiple matches. This is deterministic and will make the behaviour more clear to the users.
 
@@ -300,28 +451,17 @@ Open question: what to do in case a selective pool finishes the IPs? As a user, 
 from another pool. One alternative is to keep this as default (i.e. if allocate-to is set and no IPs are available, do not go to the next pool). Another option is to have another
 flag that overrides this behaviour.
 
-#### Implementation
-
-The changes will happen around the `Allocate` [function](https://github.com/metallb/metallb/blob/997a177a762c6c8215ca9438083545529b675376/internal/allocator/allocator.go#L266).
-
-
 ### Impacts on the operator
 
-The changes in the basic types will be reflected in the CRDs implemented in the operator.
-If / once the CRDs are moved back to metallb itself, the peer selection may include a label selector instead of a bare list of names.
+The CRDs will be removed by the operator and moved back to MetalLB. The operator's role will be only to deploy metallb and to expose toggles related to the deployment, like the nodes to deploy the speaker on.
 
 ### Test Plan
 
 **e2e tests**:
 
-Every new configuration must be reflected in additional e2e tests that ensure it's quality.
+All the current E2E tests must be converted and adapt to the new layout, in order to ensure no regressions in terms of functionality.
 
-Corner cases that must be covered:
-
-* Node selection: changing the selector
-* Peer selection: ensuring that the feature mixes well with the peer node selection
-* Peer selection: changing the selector on the fly
-* Peer selection: changing the node selector on the fly
+Every new configuration must be reflected in additional e2e tests that ensure MetalLB is handling the new configuration properly.
 
 **unit tests**:
 
@@ -334,20 +474,35 @@ This new logic may bring broader complexity while MetalLB is well known to work 
 Besides that, all the additional selectors are optional, and the bare minimum configuration will continue to work.
 Power users will be able to leverage this extra configurability for their more complex scenarios.
 
-## Alternatives
-
-The only alternatives are implementing a subset of the proposed configuration options, or no new configurations at all.
-
 ## Development Phases
 
-The four different configurations flavours seem to be independent:
+### CRD migration
 
-* pool node selector
-* pool bgp peer selector (with node selector)
+The CRDs will be moved from the MetalLB operator to MetalLB as they are. The tests already have a "CRD" mode that will
+make sure there are no (or limited :P) regressions.
+
+The configmap will be deprecated.
+
+### CRD evolution
+
+The new layout will be implemented in phases, to ease the development:
+
+* a preliminary version of the L2Advertisement CRD and BgpAdvertisement will be implemented without the peers / pools selector, to match the current "everything is advertised to everyone" logic.
+* Peers selector is added to the BgpAdvertisent CR and e2e tests are extended
+* Pool selector is added to both the CRs and e2e tests are extended
+
+Conversion webhooks will be in place to guarantee backward compatibility for the current users of the Operator.
+
+The e2e tests will be adjusted to use the new layout, and eventually a converter (like the one for configmap mode / crd mode)
+will be implemented to guarantee both the old and the new versions keep working.
+
+### New configuration degrees
+
+The remaining configuration degrees seem now to be independent:
+
+* l2 advertisement node selector
+* bgp advertisement node selector
 * pool namespace / service selector
-* no advertisement
-
-On top of that, the bgp peer selector can be split in two different phases, adding the node selection option later.
 
 For this reason, from a development point of view they can be implemented in parallel / one at the time.
 
@@ -355,5 +510,4 @@ In order to declare a given configuration option fully supported, the following 
 
 * implementing the feature
 * adding test coverage
-* aligning the operator CRDs
 * extending the documentation
