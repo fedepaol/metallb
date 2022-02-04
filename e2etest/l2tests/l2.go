@@ -114,6 +114,8 @@ var _ = ginkgo.Describe("L2", func() {
 			address := fmt.Sprintf("http://%s/", hostport)
 			err := wget.Do(address, executor.Host)
 			framework.ExpectNoError(err)
+			fmt.Println("ZZZ")
+			time.Sleep(10 * time.Second)
 		})
 
 		ginkgo.It("should work for ExternalTrafficPolicy=Local", func() {
