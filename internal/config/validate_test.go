@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"go.universe.tf/metallb/api/v1beta1"
+	"go.universe.tf/metallb/api/v1beta2"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
@@ -19,9 +19,9 @@ func TestValidate(t *testing.T) {
 		{
 			desc: "peer with bfd profile",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:    "1.2.3.4",
 							BFDProfile: "foo",
 						},
@@ -33,14 +33,14 @@ func TestValidate(t *testing.T) {
 		{
 			desc: "bfd profile set",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.4",
 						},
 					},
 				},
-				BFDProfiles: []v1beta1.BFDProfile{
+				BFDProfiles: []v1beta2.BFDProfile{
 					{
 						ObjectMeta: v1.ObjectMeta{Name: "foo"},
 					},
@@ -51,11 +51,17 @@ func TestValidate(t *testing.T) {
 		{
 			desc: "v6 address",
 			config: ClusterResources{
-				Pools: []v1beta1.AddressPool{
+				Pools: []v1beta2.AddressPool{
 					{
-						Spec: v1beta1.AddressPoolSpec{
-							Protocol:  "bgp",
+						Spec: v1beta2.AddressPoolSpec{
 							Addresses: []string{"2001:db8::/64"},
+						},
+					},
+				},
+				BGPAdvs: []v1beta2.BGPAdvertisement{
+					{
+						ObjectMeta: v1.ObjectMeta{
+							Name: "foo",
 						},
 					},
 				},
@@ -65,9 +71,9 @@ func TestValidate(t *testing.T) {
 		{
 			desc: "keepalive time",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							KeepaliveTime: v1.Duration{Duration: time.Second},
 						},
 					},
@@ -78,9 +84,9 @@ func TestValidate(t *testing.T) {
 		{
 			desc: "should pass",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.4",
 						},
 					},
@@ -111,9 +117,9 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "peer with routerid",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.4",
 							RouterID: "1.2.3.4",
 						},
@@ -124,21 +130,21 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "routerid set, one different",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.4",
 							RouterID: "1.2.3.4",
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.5",
 							RouterID: "1.2.3.4",
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.6",
 							RouterID: "1.2.3.5",
 						},
@@ -150,21 +156,21 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "routerid set, one not set",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.4",
 							RouterID: "1.2.3.4",
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.5",
 							RouterID: "1.2.3.4",
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.6",
 						},
 					},
@@ -175,15 +181,15 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "bfd profile set",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address:  "1.2.3.4",
 							RouterID: "1.2.3.4",
 						},
 					},
 				},
-				BFDProfiles: []v1beta1.BFDProfile{
+				BFDProfiles: []v1beta2.BFDProfile{
 					{
 						ObjectMeta: v1.ObjectMeta{
 							Name: "foo",
@@ -195,21 +201,21 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "myAsn set, all equals",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.4",
 							MyASN:   123,
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.5",
 							MyASN:   123,
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.6",
 							MyASN:   123,
 						},
@@ -220,21 +226,21 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "myAsn set, one different",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.4",
 							MyASN:   123,
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.5",
 							MyASN:   123,
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.6",
 							MyASN:   124,
 						},
@@ -246,14 +252,14 @@ func TestValidateFRR(t *testing.T) {
 		{
 			desc: "duplicate bgp address",
 			config: ClusterResources{
-				Peers: []v1beta1.BGPPeer{
+				Peers: []v1beta2.BGPPeer{
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.4",
 						},
 					},
 					{
-						Spec: v1beta1.BGPPeerSpec{
+						Spec: v1beta2.BGPPeerSpec{
 							Address: "1.2.3.4",
 						},
 					},

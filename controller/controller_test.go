@@ -115,27 +115,22 @@ func TestControllerMutation(t *testing.T) {
 	cfg := &config.Config{
 		Pools: map[string]*config.Pool{
 			"pool1": {
-				Protocol:   config.BGP,
 				AutoAssign: true,
 				CIDR:       []*net.IPNet{ipnet("1.2.3.0/31")},
 			},
 			"pool2": {
-				Protocol:   config.Layer2,
 				AutoAssign: false,
 				CIDR:       []*net.IPNet{ipnet("3.4.5.6/32")},
 			},
 			"pool3": {
-				Protocol:   config.BGP,
 				AutoAssign: true,
 				CIDR:       []*net.IPNet{ipnet("1000::/127")},
 			},
 			"pool4": {
-				Protocol:   config.Layer2,
 				AutoAssign: false,
 				CIDR:       []*net.IPNet{ipnet("2000::1/128")},
 			},
 			"pool5": {
-				Protocol:   config.BGP,
 				AutoAssign: true,
 				CIDR:       []*net.IPNet{ipnet("1.2.3.0/31"), ipnet("1000::/127")},
 			},
@@ -1046,10 +1041,9 @@ func TestControllerSvcAdddressSharing(t *testing.T) {
 			},
 		},
 	}
-	if c.SetConfig(l, cfg) == k8s.SyncStateError {
+	if c.SetConfig(l, cfg) == controllers.SyncStateError {
 		t.Fatalf("SetConfig failed")
 	}
-	c.MarkSynced(l)
 
 	// Configure svc1
 	svc1 := &v1.Service{
@@ -1059,14 +1053,13 @@ func TestControllerSvcAdddressSharing(t *testing.T) {
 			ExternalTrafficPolicy: "Local",
 			Ports: []v1.ServicePort{
 				{
-					Protocol: v1.ProtocolTCP,
-					Port:     3000,
+					Port: 3000,
 				},
 			},
 		},
 	}
 
-	if c.SetBalancer(l, "test1", svc1, k8s.EpsOrSlices{}) == k8s.SyncStateError {
+	if c.SetBalancer(l, "test1", svc1, epslices.EpsOrSlices{}) == controllers.SyncStateError {
 		t.Fatalf("SetBalancer failed")
 	}
 	gotSvc1 := k.gotService(svc1)
@@ -1087,14 +1080,13 @@ func TestControllerSvcAdddressSharing(t *testing.T) {
 			ExternalTrafficPolicy: "Cluster",
 			Ports: []v1.ServicePort{
 				{
-					Protocol: v1.ProtocolUDP,
-					Port:     1000,
+					Port: 1000,
 				},
 			},
 		},
 		Status: statusAssigned([]string{"4.5.6.0"}),
 	}
-	if c.SetBalancer(l, "test2", svc2, k8s.EpsOrSlices{}) != k8s.SyncStateError {
+	if c.SetBalancer(l, "test2", svc2, epslices.EpsOrSlices{}) != controllers.SyncStateError {
 		t.Fatalf("SetBalancer did not fail")
 	}
 }
