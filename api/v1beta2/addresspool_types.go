@@ -14,39 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta1
+package v1beta2
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-type BgpAdvertisement struct {
-	// The aggregation-length advertisement option lets you “roll up” the /32s into a larger prefix.
-	// +kubebuilder:validation:Minimum=1
-	// +kubebuilder:default:=32
-	// +optional
-	AggregationLength *int32 `json:"aggregationLength,omitempty" yaml:"aggregation-length,omitempty"`
-
-	// Optional, defaults to 128 (i.e. no aggregation) if not
-	// specified.
-	// +kubebuilder:default:=128
-	// +optional
-	AggregationLengthV6 *int32 `json:"aggregationLengthV6,omitempty" yaml:"aggregation-length-v6,omitempty"`
-
-	// BGP LOCAL_PREF attribute which is used by BGP best path algorithm,
-	// Path with higher localpref is preferred over one with lower localpref.
-	LocalPref uint32 `json:"localPref,omitempty" yaml:"localpref,omitempty"`
-
-	// BGP communities
-	Communities []string `json:"communities,omitempty" yaml:"communities,omitempty"`
-}
-
 // AddressPoolSpec defines the desired state of AddressPool.
 type AddressPoolSpec struct {
-	// Protocol can be used to select how the announcement is done.
-	// +kubebuilder:validation:Enum:=layer2; bgp
-	Protocol string `json:"protocol"`
-
 	// A list of IP address ranges over which MetalLB has authority.
 	// You can list multiple ranges in a single pool, they will all share the
 	// same settings. Each range can be either a CIDR prefix, or an explicit
@@ -64,11 +39,6 @@ type AddressPoolSpec struct {
 	// +optional
 	// +kubebuilder:default:=false
 	AvoidBuggyIPs bool `json:"avoidBuggyIPs,omitempty"`
-
-	// When an IP is allocated from this pool, how should it be
-	// translated into BGP announcements?
-	// +optional
-	BGPAdvertisements []BgpAdvertisement `json:"bgpAdvertisements,omitempty" yaml:"bgp-advertisements,omitempty"`
 }
 
 // AddressPoolStatus defines the observed state of AddressPool.
@@ -79,6 +49,7 @@ type AddressPoolStatus struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // AddressPool is the Schema for the addresspools API.
 type AddressPool struct {
