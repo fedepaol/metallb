@@ -5,6 +5,7 @@ package config
 import (
 	"context"
 
+	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	metallbv1beta2 "go.universe.tf/metallb/api/v1beta2"
 	"go.universe.tf/metallb/internal/config"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -88,7 +89,7 @@ func (o beta1Updater) Update(r config.ClusterResources) error {
 }
 
 func (o beta1Updater) Clean() error {
-	err := o.DeleteAllOf(context.Background(), &metallbv1beta2.AddressPool{}, client.InNamespace(o.namespace))
+	err := o.DeleteAllOf(context.Background(), &metallbv1beta1.IPPool{}, client.InNamespace(o.namespace))
 	if err != nil {
 		return err
 	}
@@ -96,15 +97,15 @@ func (o beta1Updater) Clean() error {
 	if err != nil {
 		return err
 	}
-	err = o.DeleteAllOf(context.Background(), &metallbv1beta2.BFDProfile{}, client.InNamespace(o.namespace))
+	err = o.DeleteAllOf(context.Background(), &metallbv1beta1.BFDProfile{}, client.InNamespace(o.namespace))
 	if err != nil {
 		return err
 	}
-	err = o.DeleteAllOf(context.Background(), &metallbv1beta2.BGPAdvertisement{}, client.InNamespace(o.namespace))
+	err = o.DeleteAllOf(context.Background(), &metallbv1beta1.BGPAdvertisement{}, client.InNamespace(o.namespace))
 	if err != nil {
 		return err
 	}
-	err = o.DeleteAllOf(context.Background(), &metallbv1beta2.L2Advertisement{}, client.InNamespace(o.namespace))
+	err = o.DeleteAllOf(context.Background(), &metallbv1beta1.L2Advertisement{}, client.InNamespace(o.namespace))
 	if err != nil {
 		return err
 	}

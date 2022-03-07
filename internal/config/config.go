@@ -25,6 +25,7 @@ import (
 
 	"github.com/mikioh/ipaddr"
 	"github.com/pkg/errors"
+	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	metallbv1beta2 "go.universe.tf/metallb/api/v1beta2"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -32,11 +33,11 @@ import (
 )
 
 type ClusterResources struct {
-	Pools       []metallbv1beta2.AddressPool
+	Pools       []metallbv1beta1.IPPool
 	Peers       []metallbv1beta2.BGPPeer
-	BFDProfiles []metallbv1beta2.BFDProfile
-	BGPAdvs     []metallbv1beta2.BGPAdvertisement
-	L2Advs      []metallbv1beta2.L2Advertisement
+	BFDProfiles []metallbv1beta1.BFDProfile
+	BGPAdvs     []metallbv1beta1.BGPAdvertisement
+	L2Advs      []metallbv1beta1.L2Advertisement
 }
 
 // Config is a parsed MetalLB configuration.
@@ -364,7 +365,7 @@ func peerFromCR(p metallbv1beta2.BGPPeer) (*Peer, error) {
 	}, nil
 }
 
-func addressPoolFromCR(p metallbv1beta2.AddressPool, bgpCommunities map[string]uint32) (*Pool, error) {
+func addressPoolFromCR(p metallbv1beta1.IPPool, bgpCommunities map[string]uint32) (*Pool, error) {
 	if p.Name == "" {
 		return nil, errors.New("missing pool name")
 	}
@@ -395,7 +396,7 @@ func addressPoolFromCR(p metallbv1beta2.AddressPool, bgpCommunities map[string]u
 	return ret, nil
 }
 
-func bfdProfileFromCR(p metallbv1beta2.BFDProfile) (*BFDProfile, error) {
+func bfdProfileFromCR(p metallbv1beta1.BFDProfile) (*BFDProfile, error) {
 	if p.Name == "" {
 		return nil, fmt.Errorf("missing bfd profile name")
 	}
@@ -432,11 +433,11 @@ func bfdProfileFromCR(p metallbv1beta2.BFDProfile) (*BFDProfile, error) {
 	return res, nil
 }
 
-func l2AdvertisementFromCR(crdAd metallbv1beta2.L2Advertisement) *L2Advertisement {
+func l2AdvertisementFromCR(crdAd metallbv1beta1.L2Advertisement) *L2Advertisement {
 	return &L2Advertisement{}
 }
 
-func bgpAdvertisementFromCR(crdAd metallbv1beta2.BGPAdvertisement, communities map[string]uint32) (*BGPAdvertisement, error) {
+func bgpAdvertisementFromCR(crdAd metallbv1beta1.BGPAdvertisement, communities map[string]uint32) (*BGPAdvertisement, error) {
 	err := validateDuplicateCommunities(crdAd.Spec.Communities)
 	if err != nil {
 		return nil, err
@@ -607,7 +608,7 @@ func bfdIntFromConfig(value *uint32, min, max uint32) (*uint32, error) {
 	return value, nil
 }
 
-func validateDuplicateBGPAdvertisements(ads []metallbv1beta2.BGPAdvertisement) error {
+func validateDuplicateBGPAdvertisements(ads []metallbv1beta1.BGPAdvertisement) error {
 	for i := 0; i < len(ads); i++ {
 		for j := i + 1; j < len(ads); j++ {
 			if reflect.DeepEqual(ads[i], ads[j]) {

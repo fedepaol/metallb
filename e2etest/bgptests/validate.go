@@ -12,7 +12,7 @@ import (
 
 	"github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	metallbv1beta2 "go.universe.tf/metallb/api/v1beta2"
+	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	"go.universe.tf/metallb/e2etest/pkg/executor"
 	"go.universe.tf/metallb/e2etest/pkg/frr"
 	frrcontainer "go.universe.tf/metallb/e2etest/pkg/frr/container"
@@ -118,7 +118,7 @@ func frrIsPairedOnPods(cs clientset.Interface, n *frrcontainer.FRR, ipFamily ipf
 	}, 4*time.Minute, 1*time.Second).Should(BeNil())
 }
 
-func checkBFDConfigPropagated(nodeConfig metallbv1beta2.BFDProfile, peerConfig bgpfrr.BFDPeer) error {
+func checkBFDConfigPropagated(nodeConfig metallbv1beta1.BFDProfile, peerConfig bgpfrr.BFDPeer) error {
 	if peerConfig.Status != "up" {
 		return fmt.Errorf("Peer status not up")
 	}

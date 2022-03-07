@@ -14,14 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package v1beta2
+package v1beta1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-// AddressPoolSpec defines the desired state of AddressPool.
-type AddressPoolSpec struct {
+// IPPoolSpec defines the desired state of IPPool.
+type IPPoolSpec struct {
 	// A list of IP address ranges over which MetalLB has authority.
 	// You can list multiple ranges in a single pool, they will all share the
 	// same settings. Each range can be either a CIDR prefix, or an explicit
@@ -41,8 +41,8 @@ type AddressPoolSpec struct {
 	AvoidBuggyIPs bool `json:"avoidBuggyIPs,omitempty"`
 }
 
-// AddressPoolStatus defines the observed state of AddressPool.
-type AddressPoolStatus struct {
+// IPPoolStatus defines the observed state of IPPool.
+type IPPoolStatus struct {
 	// INSERT ADDITIONAL STATUS FIELD - define observed state of cluster
 	// Important: Run "make" to regenerate code after modifying this file
 }
@@ -51,24 +51,24 @@ type AddressPoolStatus struct {
 // +kubebuilder:subresource:status
 // +kubebuilder:storageversion
 
-// AddressPool is the Schema for the addresspools API.
-type AddressPool struct {
+// IPPool is the Schema for the IPPools API.
+type IPPool struct {
 	metav1.TypeMeta   `json:",inline"`
 	metav1.ObjectMeta `json:"metadata,omitempty"`
 
-	Spec   AddressPoolSpec   `json:"spec"`
-	Status AddressPoolStatus `json:"status,omitempty"`
+	Spec   IPPoolSpec   `json:"spec"`
+	Status IPPoolStatus `json:"status,omitempty"`
 }
 
 // +kubebuilder:object:root=true
 
-// AddressPoolList contains a list of AddressPool.
-type AddressPoolList struct {
+// IPPoolList contains a list of IPPool.
+type IPPoolList struct {
 	metav1.TypeMeta `json:",inline"`
 	metav1.ListMeta `json:"metadata,omitempty"`
-	Items           []AddressPool `json:"items"`
+	Items           []IPPool `json:"items"`
 }
 
 func init() {
-	SchemeBuilder.Register(&AddressPool{}, &AddressPoolList{})
+	SchemeBuilder.Register(&IPPool{}, &IPPoolList{})
 }

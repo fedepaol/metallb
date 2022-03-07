@@ -22,6 +22,7 @@ import (
 	"github.com/davecgh/go-spew/spew"
 	"github.com/go-kit/kit/log"
 	"github.com/go-kit/kit/log/level"
+	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	metallbv1beta2 "go.universe.tf/metallb/api/v1beta2"
 	"go.universe.tf/metallb/internal/config"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,37 +55,44 @@ func (r *ConfigReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 	level.Info(r.Logger).Log("controller", "ConfigReconciler", "start reconcile", req.NamespacedName.String())
 	defer level.Info(r.Logger).Log("controller", "ConfigReconciler", "end reconcile", req.NamespacedName.String())
 
-	var addressPools metallbv1beta2.AddressPoolList
+	var addressPools metallbv1beta1.AddressPoolList
 	if err := r.List(ctx, &addressPools, client.InNamespace(r.Namespace)); err != nil {
 		level.Error(r.Logger).Log("controller", "ConfigReconciler", "error", "failed to get addresspools", "error", err)
 		return ctrl.Result{}, err
 	}
+
+	var ipPools metallbv1beta1.IPPoolList
+	if err := r.List(ctx, &ipPools, client.InNamespace(r.Namespace)); err != nil {
+		level.Error(r.Logger).Log("controller", "ConfigReconciler", "error", "failed to get addresspools", "error", err)
+		return ctrl.Result{}, err
+	}
+
 	var bgpPeers metallbv1beta2.BGPPeerList
 	if err := r.List(ctx, &bgpPeers, client.InNamespace(r.Namespace)); err != nil {
 		level.Error(r.Logger).Log("controller", "ConfigReconciler", "error", "failed to get bgppeers", "error", err)
 		return ctrl.Result{}, err
 	}
 
-	var bfdProfiles metallbv1beta2.BFDProfileList
+	var bfdProfiles metallbv1beta1.BFDProfileList
 	if err := r.List(ctx, &bfdProfiles, client.InNamespace(r.Namespace)); err != nil {
 		level.Error(r.Logger).Log("controller", "ConfigReconciler", "error", "failed to get bfdprofiles", "error", err)
 		return ctrl.Result{}, err
 	}
 
-	var l2Advertisements metallbv1beta2.L2AdvertisementList
+	var l2Advertisements metallbv1beta1.L2AdvertisementList
 	if err := r.List(ctx, &l2Advertisements, client.InNamespace(r.Namespace)); err != nil {
 		level.Error(r.Logger).Log("controller", "ConfigReconciler", "error", "failed to get l2 advertisements", "error", err)
 		return ctrl.Result{}, err
 	}
 
-	var bgpAdvertisements metallbv1beta2.BGPAdvertisementList
+	var bgpAdvertisements metallbv1beta1.BGPAdvertisementList
 	if err := r.List(ctx, &bgpAdvertisements, client.InNamespace(r.Namespace)); err != nil {
 		level.Error(r.Logger).Log("controller", "ConfigReconciler", "error", "failed to get bgp advertisements", "error", err)
 		return ctrl.Result{}, err
 	}
 
 	metallbCRs := config.ClusterResources{
-		Pools:       addressPools.Items,
+		Pools:       ipPools.Items,
 		Peers:       bgpPeers.Items,
 		BFDProfiles: bfdProfiles.Items,
 		L2Advs:      l2Advertisements.Items,
@@ -138,9 +146,9 @@ func (r *ConfigReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&metallbv1beta2.BGPPeer{}, builder.WithPredicates(p)).
-		Watches(&source.Kind{Type: &metallbv1beta2.AddressPool{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
-		Watches(&source.Kind{Type: &metallbv1beta2.BGPAdvertisement{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
-		Watches(&source.Kind{Type: &metallbv1beta2.L2Advertisement{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
-		Watches(&source.Kind{Type: &metallbv1beta2.BFDProfile{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
+		Watches(&source.Kind{Type: &metallbv1beta1.IPPool{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
+		Watches(&source.Kind{Type: &metallbv1beta1.BGPAdvertisement{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
+		Watches(&source.Kind{Type: &metallbv1beta1.L2Advertisement{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
+		Watches(&source.Kind{Type: &metallbv1beta1.BFDProfile{}}, &handler.EnqueueRequestForObject{}, builder.WithPredicates(p)).
 		Complete(r)
 }

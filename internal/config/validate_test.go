@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"go.universe.tf/metallb/api/v1beta1"
 	"go.universe.tf/metallb/api/v1beta2"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -40,7 +41,7 @@ func TestValidate(t *testing.T) {
 						},
 					},
 				},
-				BFDProfiles: []v1beta2.BFDProfile{
+				BFDProfiles: []v1beta1.BFDProfile{
 					{
 						ObjectMeta: v1.ObjectMeta{Name: "foo"},
 					},
@@ -51,14 +52,14 @@ func TestValidate(t *testing.T) {
 		{
 			desc: "v6 address",
 			config: ClusterResources{
-				Pools: []v1beta2.AddressPool{
+				Pools: []v1beta1.IPPool{
 					{
-						Spec: v1beta2.AddressPoolSpec{
+						Spec: v1beta1.IPPoolSpec{
 							Addresses: []string{"2001:db8::/64"},
 						},
 					},
 				},
-				BGPAdvs: []v1beta2.BGPAdvertisement{
+				BGPAdvs: []v1beta1.BGPAdvertisement{
 					{
 						ObjectMeta: v1.ObjectMeta{
 							Name: "foo",
@@ -189,7 +190,7 @@ func TestValidateFRR(t *testing.T) {
 						},
 					},
 				},
-				BFDProfiles: []v1beta2.BFDProfile{
+				BFDProfiles: []v1beta1.BFDProfile{
 					{
 						ObjectMeta: v1.ObjectMeta{
 							Name: "foo",

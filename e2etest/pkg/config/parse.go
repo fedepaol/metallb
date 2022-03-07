@@ -2,10 +2,10 @@
 
 package config
 
-import metallbv1beta2 "go.universe.tf/metallb/api/v1beta2"
+import metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 
-func BFDProfileWithDefaults(profile metallbv1beta2.BFDProfile, multiHop bool) metallbv1beta2.BFDProfile {
-	res := metallbv1beta2.BFDProfile{}
+func BFDProfileWithDefaults(profile metallbv1beta1.BFDProfile, multiHop bool) metallbv1beta1.BFDProfile {
+	res := metallbv1beta1.BFDProfile{}
 	res.Name = profile.Name
 	res.Spec.ReceiveInterval = valueWithDefault(profile.Spec.ReceiveInterval, 300)
 	res.Spec.TransmitInterval = valueWithDefault(profile.Spec.TransmitInterval, 300)

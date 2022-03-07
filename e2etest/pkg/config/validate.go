@@ -9,12 +9,12 @@ import (
 
 	"github.com/mikioh/ipaddr"
 	"github.com/pkg/errors"
-	metallbv1beta2 "go.universe.tf/metallb/api/v1beta2"
+	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	internalconfig "go.universe.tf/metallb/internal/config"
 	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-func ValidateIPInRange(addressPools []metallbv1beta2.AddressPool, ip string) error {
+func ValidateIPInRange(addressPools []metallbv1beta1.IPPool, ip string) error {
 	input := net.ParseIP(ip)
 	for _, addressPool := range addressPools {
 		for _, address := range addressPool.Spec.Addresses {
@@ -53,7 +53,7 @@ func GetIPFromRangeByIndex(ipRange string, index int) (string, error) {
 }
 
 // PoolCount returns the number of addresses in a given Pool.
-func PoolCount(p metallbv1beta2.AddressPool) (int64, error) {
+func PoolCount(p metallbv1beta1.IPPool) (int64, error) {
 	var total int64
 	for _, r := range p.Spec.Addresses {
 		cidrs, err := internalconfig.ParseCIDR(r)
