@@ -30,6 +30,9 @@ rules:
 - apiGroups: ["metallb.io"]
   resources: ["bgpadvertisements"]
   verbs: ["get", "list", "watch"]
+- apiGroups: ["metallb.io"]
+  resources: ["ippools"]
+  verbs: ["get", "list", "watch"]
 {{- if .Values.psp.create }}
 - apiGroups: ["policy"]
   resources: ["podsecuritypolicies"]
