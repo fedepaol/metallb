@@ -103,7 +103,7 @@ In the following example, we are deploying MetalLB with the native bgp implement
 namespace: metallb-system
 
 resources:
-  - github.com/metallb/metallb/config/native?ref=main
+  - github.com/metallb/metallb/config/native?ref=4.5.6
 ```
 
 
@@ -114,7 +114,7 @@ In order to deploy the [experimental FRR mode](https://metallb.universe.tf/confi
 namespace: metallb-system
 
 resources:
-  - github.com/metallb/metallb/config/native?ref=main
+  - github.com/metallb/metallb/config/native?ref=4.5.6
 ```
 
 ## Installation with Helm

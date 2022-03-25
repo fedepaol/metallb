@@ -534,7 +534,7 @@ def release(ctx, version, skip_release_notes=False):
     is_patch_release = version.patch != 0
 
     # Check that we have release notes for the desired version.
-    run("git checkout main", echo=True)
+    # run("git checkout main", echo=True)
     if not skip_release_notes:
         with open("website/content/release-notes/_index.md") as release_notes:
             if "## Version {}".format(version) not in release_notes.read():
@@ -557,6 +557,16 @@ def release(ctx, version, skip_release_notes=False):
         previous_version = "v{}.{}.{}".format(version.major, version.minor, version.patch-1)
     else:
         previous_version = "main"
+    bumprelease(ctx, version, previous_version)
+    run("git checkout main", echo=True)
+
+@task(help={
+    "version": "version of MetalLB to release.",
+    "previous_version": "version of the previous release.",
+})
+def bumprelease(ctx, version, previous_version):
+    version = semver.parse_version_info(version)
+
     def _replace(pattern):
         oldpat = pattern.format(previous_version)
         newpat = pattern.format("v{}").format(version)
@@ -580,7 +590,7 @@ def release(ctx, version, skip_release_notes=False):
     run("perl -pi -e 's,^Current chart version is: .*,Current chart version is: `{}`,g' charts/metallb/README.md".format(version), echo=True)
 
     # Generate the manifests with the new version of the images
-    generate_manifests(ctx)
+    generatemanifests(ctx)
 
     # Update the version in kustomize instructions
     #
@@ -595,9 +605,7 @@ def release(ctx, version, skip_release_notes=False):
     run("gofmt -w internal/version/version.go", echo=True)
 
     run("git commit -a -m 'Automated update for release v{}'".format(version), echo=True)
-    run("git tag v{} -m 'See the release notes for details:\n\nhttps://metallb.universe.tf/release-notes/#version-{}-{}-{}'".format(version, version.major, version.minor, version.patch), echo=True)
-    run("git checkout main", echo=True)
-
+    run("git tag v{} -m 'See the release notes for details:\n\nhttps://metallb.universe.tf/release-notes/#version-{}-{}-{}'".format(version, version.major, version.minor, version.patch), echo=True) 
 
 @task
 def test(ctx):

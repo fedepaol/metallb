@@ -1337,7 +1337,7 @@ spec:
           value: memberlist
         - name: METALLB_DEPLOYMENT
           value: controller
-        image: quay.io/metallb/controller:main
+        image: quay.io/metallb/controller:v4.5.6
         livenessProbe:
           failureThreshold: 3
           httpGet:
@@ -1484,7 +1484,7 @@ spec:
             secretKeyRef:
               key: secretkey
               name: memberlist
-        image: quay.io/metallb/speaker:main
+        image: quay.io/metallb/speaker:v4.5.6
         livenessProbe:
           failureThreshold: 3
           httpGet:
