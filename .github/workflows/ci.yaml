@@ -45,7 +45,9 @@ jobs:
           inv lint -e host
           inv verifylicense
           inv gomodtidy
-          inv checkchanges
+          inv checkchanges --action="run inv gomodtidy"
+          inv generatemanifests
+          inv checkchanges --action="run inv generatemanifests"
 
   helm:
     runs-on: ubuntu-20.04
