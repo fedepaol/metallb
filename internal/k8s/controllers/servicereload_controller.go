@@ -74,7 +74,7 @@ func (r *ServiceReloadReconciler) Reconcile(ctx context.Context, req ctrl.Reques
 
 func (r *ServiceReloadReconciler) reprocessAllServices(ctx context.Context) (ctrl.Result, error) {
 	var services v1.ServiceList
-	if err := r.List(ctx, &services); err != nil {
+	if err := r.List(ctx, &services, client.MatchingFields{"spec.type": v1.ServiceTypeLoadBalancer}); err != nil {
 		level.Error(r.Log).Log("controller", "ServiceReloadReconciler", "error", "failed to list the services", "error", err)
 		return ctrl.Result{}, err
 	}

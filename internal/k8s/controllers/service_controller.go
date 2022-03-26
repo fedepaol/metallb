@@ -31,8 +31,11 @@ import (
 	discovery "k8s.io/api/discovery/v1beta1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/builder"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/event"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
+	"sigs.k8s.io/controller-runtime/pkg/predicate"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 	"sigs.k8s.io/controller-runtime/pkg/source"
 )
@@ -92,9 +95,31 @@ func (r *ServiceReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ct
 }
 
 func (r *ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	p := predicate.Funcs{
+		CreateFunc: func(e event.CreateEvent) bool {
+			s := e.Object.(*v1.Service)
+			return s.Spec.Type == v1.ServiceTypeLoadBalancer
+		},
+
+		UpdateFunc: func(e event.UpdateEvent) bool {
+			s := e.ObjectNew.(*v1.Service)
+			return s.Spec.Type == v1.ServiceTypeLoadBalancer
+		},
+
+		DeleteFunc: func(e event.DeleteEvent) bool {
+			s := e.Object.(*v1.Service)
+			return s.Spec.Type == v1.ServiceTypeLoadBalancer
+		},
+
+		GenericFunc: func(e event.GenericEvent) bool {
+			s := e.Object.(*v1.Service)
+			return s.Spec.Type == v1.ServiceTypeLoadBalancer
+		},
+	}
+
 	if r.Endpoints == EndpointSlices {
 		return ctrl.NewControllerManagedBy(mgr).
-			For(&v1.Service{}).
+			For(&v1.Service{}, builder.WithPredicates(p)).
 			Watches(&source.Kind{Type: &discovery.EndpointSlice{}},
 				handler.EnqueueRequestsFromMapFunc(func(obj client.Object) []reconcile.Request {
 					epSlice, ok := obj.(*discovery.EndpointSlice)
@@ -113,7 +138,7 @@ func (r *ServiceReconciler) SetupWithManager(mgr ctrl.Manager) error {
 	}
 	if r.Endpoints == Endpoints {
 		return ctrl.NewControllerManagedBy(mgr).
-			For(&v1.Service{}).
+			For(&v1.Service{}, builder.WithPredicates(p)).
 			Watches(&source.Kind{Type: &v1.Endpoints{}},
 				handler.EnqueueRequestsFromMapFunc(func(obj client.Object) []reconcile.Request {
 					endpoints, ok := obj.(*v1.Endpoints)
