@@ -795,6 +795,7 @@ def generatemanifests(ctx, controller_gen="controller-gen", kustomize_cli="kusto
     generate_manifest(ctx, controller_gen=controller_gen, kustomize_cli=kustomize_cli, bgp_type="native", output="config/manifests/metallb-native.yaml")
     generate_manifest(ctx, controller_gen=controller_gen, kustomize_cli=kustomize_cli, bgp_type="frr", enable_webhooks=True, output="config/manifests/metallb-frr-with-webhooks.yaml")
     generate_manifest(ctx, controller_gen=controller_gen, kustomize_cli=kustomize_cli, bgp_type="native", enable_webhooks=True, output="config/manifests/metallb-native-with-webhooks.yaml")
+    generate_manifest(ctx, controller_gen=controller_gen, kustomize_cli=kustomize_cli, bgp_type="frr-on-ocp", enable_webhooks=True, output="config/manifests/metallb-frr-ocp-with-webhooks.yaml")
 
 @task(help={
     "action": "The action to take to fix the uncommitted changes",
