@@ -84,7 +84,7 @@ jobs:
         uses: docker/metadata-action@v4
         with:
           images: |
-            quay.io/metallb/${{ matrix.image }}
+            quay.io/fpaoline/${{ matrix.image }}
           # generate Docker tags based on the following events/attributes
           tags: |
             type=ref,event=branch
