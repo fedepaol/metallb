@@ -13,6 +13,13 @@ reload_frr() {
 
   kill_sleep
 
+  echo "Checking if the configuration file changed"
+  if [ -f "$CURRENT_CONFIG" ] && cmp -s "$CURRENT_CONFIG" "$FILE_TO_RELOAD" ; then
+    echo "FRR configuration did not change, exiting.. $SECONDS seconds"
+    echo -n "$(date +%s) success"  > "$STATUSFILE"
+    return
+  fi
+
   echo "Checking the configuration file syntax"
   if ! python3 /usr/lib/frr/frr-reload.py --test --stdout "$FILE_TO_RELOAD" ; then
     echo "Syntax error spotted: aborting.. $SECONDS seconds"
@@ -29,6 +36,8 @@ reload_frr() {
   
   echo "FRR reloaded successfully! $SECONDS seconds"
   echo -n "$(date +%s) success"  > "$STATUSFILE"
+  cp "$FILE_TO_RELOAD" "$CURRENT_CONFIG"
+
 } 200<"$LOCKFILE"
 
 kill_sleep() {
@@ -50,6 +59,7 @@ PIDFILE="$SHARED_VOLUME/reloader.pid"
 FILE_TO_RELOAD="$SHARED_VOLUME/frr.conf"
 LOCKFILE="$SHARED_VOLUME/lock"
 STATUSFILE="$SHARED_VOLUME/.status"
+CURRENT_CONFIG="$SHARED_VOLUME/frr.conf.current"
 
 clean_files
 echo "PID is: $$, writing to $PIDFILE"
