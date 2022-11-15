@@ -4,7 +4,6 @@ package config
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"net"
 	"os"
@@ -12,9 +11,7 @@ import (
 
 	"github.com/pkg/errors"
 	consts "go.universe.tf/metallb/e2etest/pkg/frr/consts"
-	"go.universe.tf/metallb/e2etest/pkg/k8s"
 	"go.universe.tf/metallb/internal/ipfamily"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	clientset "k8s.io/client-go/kubernetes"
 )
 
@@ -118,12 +115,7 @@ func BGPPeersForAllNodes(cs clientset.Interface, nc NeighborConfig, rc RouterCon
 	router.AcceptV6Neighbors = make([]*NeighborConfig, 0)
 	router.Neighbors = make([]*NeighborConfig, 0)
 
-	nodes, err := cs.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
-	if err != nil {
-		return "", errors.Wrapf(err, "Failed to get cluster nodes")
-	}
-
-	ips := k8s.NodeIPsForFamily(nodes.Items, ipFamily)
+	ips := []string{"172.31.0.5"} // TODO remove me
 	for _, ip := range ips {
 		neighbor := nc
 		neighbor.Addr = ip

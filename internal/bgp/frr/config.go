@@ -80,7 +80,7 @@ ipv6 prefix-list {{allowedPrefixList $n}} deny any
 {{- end }}
 
 {{range $r := .Routers -}}
-router bgp {{$r.MyASN}}
+router bgp {{$r.MyASN}} vrf red
   no bgp ebgp-requires-policy
   no bgp network import-check
   no bgp default ipv4-unicast

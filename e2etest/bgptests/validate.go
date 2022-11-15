@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"strconv"
 	"strings"
 	"time"
 
@@ -19,7 +18,6 @@ import (
 	"go.universe.tf/metallb/e2etest/pkg/k8s"
 	"go.universe.tf/metallb/e2etest/pkg/metallb"
 	"go.universe.tf/metallb/e2etest/pkg/routes"
-	"go.universe.tf/metallb/e2etest/pkg/wget"
 	bgpfrr "go.universe.tf/metallb/internal/bgp/frr"
 	"go.universe.tf/metallb/internal/ipfamily"
 	corev1 "k8s.io/api/core/v1"
@@ -64,7 +62,7 @@ func validateService(cs clientset.Interface, svc *corev1.Service, nodes []corev1
 }
 
 func validateServiceNoWait(cs clientset.Interface, svc *corev1.Service, nodes []corev1.Node, c *frrcontainer.FRR) error {
-	port := strconv.Itoa(int(svc.Spec.Ports[0].Port))
+	// port := strconv.Itoa(int(svc.Spec.Ports[0].Port))
 
 	if len(svc.Status.LoadBalancer.Ingress) == 2 {
 		ip1 := net.ParseIP(svc.Status.LoadBalancer.Ingress[0].IP)
@@ -74,13 +72,15 @@ func validateServiceNoWait(cs clientset.Interface, svc *corev1.Service, nodes []
 	for _, ip := range svc.Status.LoadBalancer.Ingress {
 
 		ingressIP := e2eservice.GetIngressPoint(&ip)
-		hostport := net.JoinHostPort(ingressIP, port)
-		address := fmt.Sprintf("http://%s/", hostport)
+		/*
+			hostport := net.JoinHostPort(ingressIP, port)
+			address := fmt.Sprintf("http://%s/", hostport)
 
-		err := wget.Do(address, c)
-		if err != nil {
-			return err
-		}
+				err := wget.Do(address, c)
+				if err != nil {
+					return err
+				}
+		*/
 
 		frrRoutesV4, frrRoutesV6, err := frr.Routes(c)
 		if err != nil {

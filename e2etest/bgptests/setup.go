@@ -3,6 +3,8 @@
 package bgptests
 
 import (
+	"time"
+
 	"github.com/onsi/ginkgo"
 	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	"go.universe.tf/metallb/e2etest/pkg/config"
@@ -48,9 +50,9 @@ func setupBGPService(f *framework.Framework, pairingIPFamily ipfamily.Family, po
 	resources.BGPAdvs = []metallbv1beta1.BGPAdvertisement{
 		{ObjectMeta: metav1.ObjectMeta{Name: "empty"}},
 	}
-	resources.Peers = metallb.PeersForContainers(FRRContainers, pairingIPFamily)
+	resources.Peers = metallb.PeersForContainers(VRFFRRContainers, pairingIPFamily)
 
-	for _, c := range FRRContainers {
+	for _, c := range VRFFRRContainers {
 		err := frrcontainer.PairWithNodes(cs, c, pairingIPFamily)
 		framework.ExpectNoError(err)
 	}
@@ -58,7 +60,8 @@ func setupBGPService(f *framework.Framework, pairingIPFamily ipfamily.Family, po
 	err = ConfigUpdater.Update(resources)
 	framework.ExpectNoError(err)
 
-	for _, c := range FRRContainers {
+	time.Sleep(3 * time.Minute)
+	for _, c := range VRFFRRContainers {
 		validateFRRPeeredWithAllNodes(cs, c, pairingIPFamily)
 	}
 	return jig, svc

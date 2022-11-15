@@ -140,8 +140,10 @@ var _ = ginkgo.BeforeSuite(func() {
 	cs, err := framework.LoadClientset()
 	framework.ExpectNoError(err)
 
-	v4Addresses := strings.Split(ipv4ForContainers, ",")
-	v6Addresses := strings.Split(ipv6ForContainers, ",")
+	/*
+		v4Addresses := strings.Split(ipv4ForContainers, ",")
+		v6Addresses := strings.Split(ipv6ForContainers, ",")
+	*/
 
 	switch {
 	case externalContainers != "":
@@ -151,8 +153,8 @@ var _ = ginkgo.BeforeSuite(func() {
 		bgptests.FRRContainers, err = bgptests.HostContainerSetup()
 		framework.ExpectNoError(err)
 	default:
-		bgptests.FRRContainers, err = bgptests.KindnetContainersSetup(v4Addresses, v6Addresses, cs)
-		framework.ExpectNoError(err)
+		// bgptests.FRRContainers, err = bgptests.KindnetContainersSetup(v4Addresses, v6Addresses, cs)
+		// framework.ExpectNoError(err)
 		bgptests.VRFFRRContainers, err = bgptests.VRFContainersSetup(cs)
 		framework.ExpectNoError(err)
 	}
