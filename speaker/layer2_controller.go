@@ -17,9 +17,11 @@ package main
 import (
 	"bytes"
 	"crypto/sha256"
+	"fmt"
 	"net"
 	"sort"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	"go.universe.tf/metallb/internal/config"
@@ -136,8 +138,12 @@ func (c *layer2Controller) ShouldAnnounce(l log.Logger, name string, toAnnounce 
 
 func (c *layer2Controller) SetBalancer(l log.Logger, name string, lbIPs []net.IP, pool *config.Pool, client service, svc *v1.Service) error {
 	ifs := c.announcer.GetInterfaces()
+	fmt.Println("DEBUG set balancer")
 	for _, lbIP := range lbIPs {
 		ipAdv := ipAdvertisementFor(lbIP, c.myNode, pool.L2Advertisements)
+		fmt.Println("DEBUG lb ip is ", lbIP, c.myNode)
+		fmt.Println("DEBUG advertiesment is ", spew.Sdump(ipAdv))
+
 		if !ipAdv.MatchInterfaces(ifs...) {
 			level.Warn(l).Log("op", "SetBalancer", "protocol", "layer2", "service", name, "IPAdvertisement", ipAdv,
 				"localIfs", ifs, "msg", "the specified interfaces used to announce LB IP don't exist")

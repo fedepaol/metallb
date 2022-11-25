@@ -3,6 +3,7 @@
 package layer2
 
 import (
+	"fmt"
 	"io/ioutil"
 	"net"
 	"os"
@@ -55,12 +56,14 @@ func (a *Announce) interfaceScan() {
 }
 
 func (a *Announce) updateInterfaces() {
+	fmt.Println("DEBUG updating interfaces")
 	ifs, err := net.Interfaces()
 	if err != nil {
 		level.Error(a.logger).Log("op", "getInterfaces", "error", err, "msg", "couldn't list interfaces")
 		return
 	}
 
+	fmt.Println("DEBUG interfaces are ", ifs)
 	a.Lock()
 	defer a.Unlock()
 
@@ -69,6 +72,7 @@ func (a *Announce) updateInterfaces() {
 	for _, intf := range ifs {
 		ifi := intf
 		curIfs = append(curIfs, ifi.Name)
+		fmt.Println("DEBUG appending ", ifi.Name)
 		l := log.With(a.logger, "interface", ifi.Name)
 		addrs, err := ifi.Addrs()
 		if err != nil {
@@ -77,9 +81,11 @@ func (a *Announce) updateInterfaces() {
 		}
 
 		if ifi.Flags&net.FlagUp == 0 {
+			fmt.Println("DEBUG skipping, not up")
 			continue
 		}
 		if _, err = os.Stat("/sys/class/net/" + ifi.Name + "/master"); !os.IsNotExist(err) {
+			fmt.Println("DEBUG skipping, hasmaster")
 			continue
 		}
 		f, err := ioutil.ReadFile("/sys/class/net/" + ifi.Name + "/flags")
@@ -87,6 +93,7 @@ func (a *Announce) updateInterfaces() {
 			flags, _ := strconv.ParseUint(string(f)[:len(string(f))-1], 0, 32)
 			// NOARP flag
 			if flags&0x80 != 0 {
+				fmt.Println("DEBUG skipping, noarp")
 				continue
 			}
 		}
@@ -125,6 +132,8 @@ func (a *Announce) updateInterfaces() {
 			level.Info(l).Log("event", "createNDPResponder", "msg", "created NDP responder for interface")
 		}
 	}
+
+	fmt.Println("DEBUG appending interfaces ", curIfs)
 
 	a.nodeInterfaces = curIfs
 
@@ -319,6 +328,7 @@ func (a *Announce) GetInterfaces() []string {
 
 	localInterfaces := make([]string, len(a.nodeInterfaces))
 	copy(localInterfaces, a.nodeInterfaces)
+	fmt.Println("DEBUG local interfaces", localInterfaces)
 	return localInterfaces
 }
 
