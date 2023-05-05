@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.universe.tf/metallb/internal/bgp"
 	"go.universe.tf/metallb/internal/config"
@@ -39,6 +40,7 @@ import (
 	"go.universe.tf/metallb/internal/speakerlist"
 	"go.universe.tf/metallb/internal/version"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -147,9 +149,17 @@ func main() {
 		os.Exit(1)
 	}
 
+	mgr, err := k8s.NewControllerManager(*namespace)
+	if err != nil {
+		level.Error(logger).Log("op", "startup", "msg", "unable to start manager", "error", err)
+		os.Exit(1)
+	}
+
 	// Setup all clients and speakers, config decides what is being done runtime.
 	ctrl, err := newController(controllerConfig{
+		Client:                 mgr.GetClient(),
 		MyNode:                 *myNode,
+		Namespace:              *namespace,
 		Logger:                 logger,
 		LogLevel:               logging.Level(*logLevel),
 		SList:                  sList,
@@ -168,7 +178,7 @@ func main() {
 		validateConfig = config.DiscardNativeOnly
 	}
 
-	client, err := k8s.New(&k8s.Config{
+	client, err := k8s.New(mgr, &k8s.Config{
 		ProcessName:     "metallb-speaker",
 		NodeName:        *myNode,
 		Logger:          logger,
@@ -219,10 +229,12 @@ type controller struct {
 }
 
 type controllerConfig struct {
-	MyNode   string
-	Logger   log.Logger
-	LogLevel logging.Level
-	SList    SpeakerList
+	MyNode    string
+	Client    client.Client
+	Namespace string
+	Logger    log.Logger
+	LogLevel  logging.Level
+	SList     SpeakerList
 
 	bgpType bgpImplementation
 
@@ -241,7 +253,7 @@ func newController(cfg controllerConfig) (*controller, error) {
 			myNode:         cfg.MyNode,
 			svcAds:         make(map[string][]*bgp.Advertisement),
 			bgpType:        cfg.bgpType,
-			sessionManager: newBGP(cfg.bgpType, cfg.Logger, cfg.LogLevel),
+			sessionManager: newBGP(cfg),
 		},
 	}
 	protocols := []config.Proto{config.BGP}
@@ -500,7 +512,12 @@ func (c *controller) SetConfig(l log.Logger, cfg *config.Config) controllers.Syn
 	}
 
 	for proto, handler := range c.protocolHandlers {
-		if err := handler.SetConfig(l, cfg); err != nil {
+		err := handler.SetConfig(l, cfg)
+		if isTemporaryError(err) {
+			level.Error(l).Log("op", "setConfig", "protocol", proto, "error", err, "msg", "applying new configuration to protocol handler failed, retry")
+			return controllers.SyncStateError
+		}
+		if err != nil {
 			level.Error(l).Log("op", "setConfig", "protocol", proto, "error", err, "msg", "applying new configuration to protocol handler failed")
 			return controllers.SyncStateErrorNoRetry
 		}
@@ -531,6 +548,16 @@ func (c *controller) SetNode(l log.Logger, node *v1.Node) controllers.SyncState 
 
 func isNetworkConditionChanged(nodeName string, oldNodes map[string]*v1.Node, newNode *v1.Node) bool {
 	return k8snodes.IsNetworkUnavailable(oldNodes[nodeName]) != k8snodes.IsNetworkUnavailable(newNode)
+}
+
+func isTemporaryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.As(err, &bgp.TemporaryError{}) {
+		return true
+	}
+	return false
 }
 
 // A Protocol can advertise an IP address.

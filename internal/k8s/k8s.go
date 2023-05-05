@@ -10,7 +10,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
-	"os"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/cache"
@@ -39,6 +38,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	policyv1beta1 "k8s.io/kubernetes/pkg/apis/policy/v1beta1"
 
+	frrv1alpha1 "github.com/metallb/frrk8s/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	apiext "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
@@ -77,6 +77,7 @@ func init() {
 	utilruntime.Must(rbacv1.AddToScheme(scheme))
 	utilruntime.Must(apiext.AddToScheme(scheme))
 	utilruntime.Must(discovery.AddToScheme(scheme))
+	utilruntime.Must(frrv1alpha1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }
@@ -118,35 +119,8 @@ type Config struct {
 //
 // The client uses processName to identify itself to the cluster
 // (e.g. when logging events).
-func New(cfg *Config) (*Client, error) {
-	namespaceSelector := cache.ObjectSelector{
-		Field: fields.ParseSelectorOrDie(fmt.Sprintf("metadata.namespace=%s", cfg.Namespace)),
-	}
+func New(mgr manager.Manager, cfg *Config) (*Client, error) {
 
-	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
-		Scheme:             scheme,
-		Port:               9443, // TODO port only with controller, for webhooks
-		LeaderElection:     false,
-		MetricsBindAddress: "0", // Disable metrics endpoint of controller manager
-		NewCache: cache.BuilderWithOptions(cache.Options{
-			SelectorsByObject: map[client.Object]cache.ObjectSelector{
-				&metallbv1beta1.AddressPool{}:      namespaceSelector,
-				&metallbv1beta1.BFDProfile{}:       namespaceSelector,
-				&metallbv1beta1.BGPAdvertisement{}: namespaceSelector,
-				&metallbv1beta1.BGPPeer{}:          namespaceSelector,
-				&metallbv1beta1.IPAddressPool{}:    namespaceSelector,
-				&metallbv1beta1.L2Advertisement{}:  namespaceSelector,
-				&metallbv1beta2.BGPPeer{}:          namespaceSelector,
-				&metallbv1beta1.Community{}:        namespaceSelector,
-				&corev1.Secret{}:                   namespaceSelector,
-				&corev1.ConfigMap{}:                namespaceSelector,
-			},
-		}),
-	})
-	if err != nil {
-		setupLog.Error(err, "unable to start manager")
-		os.Exit(1)
-	}
 	clientset, err := kubernetes.NewForConfig(mgr.GetConfig())
 	if err != nil {
 		return nil, fmt.Errorf("creating Kubernetes client: %s", err)
@@ -310,6 +284,37 @@ func New(cfg *Config) (*Client, error) {
 	}
 
 	return c, nil
+}
+
+func NewControllerManager(namespace string) (manager.Manager, error) {
+	namespaceSelector := cache.ObjectSelector{
+		Field: fields.ParseSelectorOrDie(fmt.Sprintf("metadata.namespace=%s", namespace)),
+	}
+
+	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
+		Scheme:             scheme,
+		Port:               9443, // TODO port only with controller, for webhooks
+		LeaderElection:     false,
+		MetricsBindAddress: "0", // Disable metrics endpoint of controller manager
+		NewCache: cache.BuilderWithOptions(cache.Options{
+			SelectorsByObject: map[client.Object]cache.ObjectSelector{
+				&metallbv1beta1.AddressPool{}:      namespaceSelector,
+				&metallbv1beta1.BFDProfile{}:       namespaceSelector,
+				&metallbv1beta1.BGPAdvertisement{}: namespaceSelector,
+				&metallbv1beta1.BGPPeer{}:          namespaceSelector,
+				&metallbv1beta1.IPAddressPool{}:    namespaceSelector,
+				&metallbv1beta1.L2Advertisement{}:  namespaceSelector,
+				&metallbv1beta2.BGPPeer{}:          namespaceSelector,
+				&metallbv1beta1.Community{}:        namespaceSelector,
+				&corev1.Secret{}:                   namespaceSelector,
+				&corev1.ConfigMap{}:                namespaceSelector,
+			},
+		}),
+	})
+	if err != nil {
+		return nil, err
+	}
+	return mgr, nil
 }
 
 // CreateMlSecret create the memberlist secret.

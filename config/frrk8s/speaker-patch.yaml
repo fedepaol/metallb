@@ -1,0 +1,13 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: speaker
+spec:
+  template:
+    spec:
+      containers:
+        - name: speaker
+          env:
+            - name: METALLB_BGP_TYPE
+              value: frrk8s
+

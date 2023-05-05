@@ -204,7 +204,13 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := k8s.New(cfg)
+	mgr, err := k8s.NewControllerManager(*namespace)
+	if err != nil {
+		level.Error(logger).Log("op", "startup", "msg", "unable to start manager", "error", err)
+		os.Exit(1)
+	}
+
+	client, err := k8s.New(mgr, cfg)
 	if err != nil {
 		level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to create k8s client")
 		os.Exit(1)

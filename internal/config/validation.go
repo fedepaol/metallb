@@ -18,6 +18,8 @@ func ValidationFor(bgpImpl string) Validate {
 		return DiscardNativeOnly
 	case "native":
 		return DiscardFRROnly
+	case "frrk8s":
+		return DiscardNativeOnly
 	}
 	return DontValidate
 }

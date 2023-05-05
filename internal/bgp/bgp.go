@@ -12,6 +12,16 @@ import (
 	"go.universe.tf/metallb/internal/config"
 )
 
+// TemporaryError is an error type that indicates that the error is
+// temporary, and the caller should retry the operation after a delay.
+type TemporaryError struct {
+	Err error
+}
+
+func (e TemporaryError) Error() string {
+	return e.Err.Error()
+}
+
 // Advertisement represents one network path and its BGP attributes.
 type Advertisement struct {
 	// The prefix being advertised to the peer.

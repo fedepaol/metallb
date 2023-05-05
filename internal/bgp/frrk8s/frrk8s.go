@@ -3,32 +3,38 @@
 package frr
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
 	"sort"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/go-kit/log"
-	"github.com/go-kit/log/level"
+	frrv1alpha1 "github.com/metallb/frrk8s/api/v1alpha1"
 	"go.universe.tf/metallb/internal/bgp"
+	"go.universe.tf/metallb/internal/bgp/frr"
 	metallbconfig "go.universe.tf/metallb/internal/config"
 	"go.universe.tf/metallb/internal/ipfamily"
 	"go.universe.tf/metallb/internal/logging"
+	"k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 // As the MetalLB controller should handle messages synchronously, there should
 // no need to lock this data structure. TODO: confirm this.
 
 type sessionManager struct {
-	sessions     map[string]*session
-	bfdProfiles  []BFDProfile
-	extraConfig  string
-	reloadConfig chan reloadEvent
-	logLevel     string
+	sessions map[string]*session
+	//bfdProfiles  []BFDProfile
+	client           client.Client
+	metallbNamespace string
+	currentNode      string
+	extraConfig      string
+	logLevel         string
 	sync.Mutex
 }
 
@@ -86,7 +92,10 @@ func (s *session) Set(advs ...*bgp.Advertisement) error {
 		return err
 	}
 
-	s.sessionManager.reloadConfig <- reloadEvent{config: config}
+	err = s.sessionManager.writeFRRConfig(config)
+	if err != nil {
+		return fmt.Errorf("session %s failed to write config on set: %w", sessionName, err)
+	}
 	return nil
 }
 
@@ -104,7 +113,12 @@ func (s *session) Close() error {
 		return err
 	}
 
-	s.sessionManager.reloadConfig <- reloadEvent{config: frrConfig}
+	err = s.sessionManager.writeFRRConfig(frrConfig)
+	if err != nil {
+		sessionName := sessionName(*s)
+		return fmt.Errorf("session %s failed to write config on close: %w", sessionName, err)
+	}
+
 	return nil
 }
 
@@ -130,7 +144,11 @@ func (sm *sessionManager) NewSession(l log.Logger, args bgp.SessionParameters) (
 		return nil, err
 	}
 
-	sm.reloadConfig <- reloadEvent{config: frrConfig}
+	err = s.sessionManager.writeFRRConfig(frrConfig)
+	if err != nil {
+		return nil, fmt.Errorf("session %s failed to write config on new: %w", sessionName(*s), err)
+	}
+
 	return s, nil
 }
 
@@ -155,56 +173,59 @@ func (sm *sessionManager) deleteSession(s *session) error {
 }
 
 func (sm *sessionManager) SyncExtraInfo(extraInfo string) error {
-	sm.Lock()
-	defer sm.Unlock()
-	sm.extraConfig = extraInfo
-	frrConfig, err := sm.createConfig()
-	if err != nil {
-		return err
-	}
+	// TODO this is going to be deprecated
+	/*
+		sm.Lock()
+		defer sm.Unlock()
+		sm.extraConfig = extraInfo
+		frrConfig, err := sm.createConfig()
+		if err != nil {
+			return err
+		}
 
-	sm.reloadConfig <- reloadEvent{config: frrConfig}
+		sm.reloadConfig <- reloadEvent{config: frrConfig}
+	*/
 	return nil
 }
 
 func (sm *sessionManager) SyncBFDProfiles(profiles map[string]*metallbconfig.BFDProfile) error {
-	sm.Lock()
-	defer sm.Unlock()
-	sm.bfdProfiles = make([]BFDProfile, 0)
-	for _, p := range profiles {
-		frrProfile := configBFDProfileToFRR(p)
-		sm.bfdProfiles = append(sm.bfdProfiles, *frrProfile)
-	}
-	sort.Slice(sm.bfdProfiles, func(i, j int) bool {
-		return sm.bfdProfiles[i].Name < sm.bfdProfiles[j].Name
-	})
+	/*
+		sm.Lock()
+		defer sm.Unlock()
+		sm.bfdProfiles = make([]BFDProfile, 0)
+		for _, p := range profiles {
+			frrProfile := configBFDProfileToFRR(p)
+			sm.bfdProfiles = append(sm.bfdProfiles, *frrProfile)
+		}
+		sort.Slice(sm.bfdProfiles, func(i, j int) bool {
+			return sm.bfdProfiles[i].Name < sm.bfdProfiles[j].Name
+		})
 
-	frrConfig, err := sm.createConfig()
-	if err != nil {
-		return err
-	}
+		frrConfig, err := sm.createConfig()
+		if err != nil {
+			return err
+		}
 
-	sm.reloadConfig <- reloadEvent{config: frrConfig}
+		sm.reloadConfig <- reloadEvent{config: frrConfig}
+	*/
 	return nil
 }
 
-func (sm *sessionManager) createConfig() (*frrConfig, error) {
-	hostname, err := osHostname()
-	if err != nil {
-		return nil, err
-	}
-
-	config := &frrConfig{
-		Hostname:    hostname,
-		Loglevel:    sm.logLevel,
-		BFDProfiles: sm.bfdProfiles,
-		ExtraConfig: sm.extraConfig,
+func (sm *sessionManager) createConfig() (frrv1alpha1.FRRConfiguration, error) {
+	res := frrv1alpha1.FRRConfiguration{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "metallb-" + sm.currentNode,
+			Namespace: sm.metallbNamespace,
+		},
+		Spec: frrv1alpha1.FRRConfigurationSpec{
+			NodeName: sm.currentNode,
+		},
 	}
 
 	type router struct {
 		myASN        uint32
 		routerID     string
-		neighbors    map[string]*neighborConfig
+		neighbors    map[string]frrv1alpha1.Neighbor
 		vrf          string
 		ipV4Prefixes map[string]string
 		ipV6Prefixes map[string]string
@@ -212,22 +233,16 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 
 	routers := make(map[string]*router)
 
-	// leave it for backward compatibility
-	frrLogLevel, found := os.LookupEnv("FRR_LOGGING_LEVEL")
-	if found {
-		config.Loglevel = frrLogLevel
-	}
-
 	for _, s := range sm.sessions {
-		var neighbor *neighborConfig
+		var neighbor frrv1alpha1.Neighbor
 		var exist bool
 		var rout *router
 
-		routerName := RouterName(s.RouterID.String(), s.MyASN, s.VRFName)
+		routerName := frr.RouterName(s.RouterID.String(), s.MyASN, s.VRFName)
 		if rout, exist = routers[routerName]; !exist {
 			rout = &router{
 				myASN:        s.MyASN,
-				neighbors:    make(map[string]*neighborConfig),
+				neighbors:    make(map[string]frrv1alpha1.Neighbor),
 				ipV4Prefixes: make(map[string]string),
 				ipV6Prefixes: make(map[string]string),
 				vrf:          s.VRFName,
@@ -238,37 +253,35 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 			routers[routerName] = rout
 		}
 
-		neighborName := NeighborName(s.PeerAddress, s.PeerASN, s.VRFName)
+		neighborName := frr.NeighborName(s.PeerAddress, s.PeerASN, s.VRFName)
 		if neighbor, exist = rout.neighbors[neighborName]; !exist {
 			host, port, err := net.SplitHostPort(s.PeerAddress)
 			if err != nil {
-				return nil, err
+				return frrv1alpha1.FRRConfiguration{}, err
 			}
 
 			portUint, err := strconv.ParseUint(port, 10, 16)
 			if err != nil {
-				return nil, err
+				return frrv1alpha1.FRRConfiguration{}, err
 			}
 
-			family := ipfamily.ForAddress(net.ParseIP(host))
-
-			neighbor = &neighborConfig{
-				IPFamily:       family,
-				ASN:            s.PeerASN,
-				Addr:           host,
-				Port:           uint16(portUint),
-				HoldTime:       uint64(s.HoldTime / time.Second),
-				KeepaliveTime:  uint64(s.KeepAliveTime / time.Second),
-				Password:       s.Password,
-				Advertisements: make([]*advertisementConfig, 0),
-				BFDProfile:     s.BFDProfile,
-				EBGPMultiHop:   s.EBGPMultiHop,
-				VRFName:        s.VRFName,
+			neighbor = frrv1alpha1.Neighbor{
+				ASN:     s.PeerASN,
+				Address: host,
+				Port:    uint16(portUint),
+				// HoldTime:       uint64(s.HoldTime / time.Second),
+				// KeepaliveTime:  uint64(s.KeepAliveTime / time.Second),
+				Password: s.Password,
+				AllowedOutPrefixes: frrv1alpha1.AllowedPrefixes{
+					Prefixes: make([]string, 0),
+				},
+				// BFDProfile:   s.BFDProfile,
+				// EBGPMultiHop: s.EBGPMultiHop,
+				// VRFName:      s.VRFName,
 			}
-			if s.SourceAddress != nil {
-				neighbor.SrcAddr = s.SourceAddress.String()
-			}
-			rout.neighbors[neighborName] = neighbor
+			//if s.SourceAddress != nil {
+			//	neighbor.SrcAddr = s.SourceAddress.String()
+			//}
 		}
 
 		/* As 'session.advertised' is a map, we can be sure there are no
@@ -290,124 +303,79 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 			}
 
 			prefix := adv.Prefix.String()
-			advConfig := advertisementConfig{
-				IPFamily:    family,
-				Prefix:      prefix,
-				Communities: communities,
-				LocalPref:   adv.LocalPref,
-			}
+			/*
+				advConfig := advertisementConfig{
+					IPFamily:    family,
+					Prefix:      prefix,
+					Communities: communities,
+					LocalPref:   adv.LocalPref,
+				}
+			*/
+			neighbor.AllowedOutPrefixes.Prefixes = append(neighbor.AllowedOutPrefixes.Prefixes, prefix)
 
-			neighbor.Advertisements = append(neighbor.Advertisements, &advConfig)
 			switch family {
 			case ipfamily.IPv4:
 				rout.ipV4Prefixes[prefix] = prefix
-				neighbor.HasV4Advertisements = true
 			case ipfamily.IPv6:
 				rout.ipV6Prefixes[prefix] = prefix
-				neighbor.HasV6Advertisements = true
 			}
 		}
+		rout.neighbors[neighborName] = neighbor
 	}
 
 	for _, r := range sortMap(routers) {
-		toAdd := &routerConfig{
-			MyASN:        r.myASN,
-			RouterID:     r.routerID,
-			VRF:          r.vrf,
-			Neighbors:    sortMap(r.neighbors),
-			IPV4Prefixes: sortMap(r.ipV4Prefixes),
-			IPV6Prefixes: sortMap(r.ipV6Prefixes),
+		toAdd := frrv1alpha1.Router{
+			ASN:        r.myASN,
+			ID:         r.routerID,
+			VRF:        r.vrf,
+			Neighbors:  sortMap(r.neighbors),
+			PrefixesV4: sortMap(r.ipV4Prefixes),
+			PrefixesV6: sortMap(r.ipV6Prefixes),
 		}
-		config.Routers = append(config.Routers, toAdd)
+		res.Spec.Routers = append(res.Spec.Routers, toAdd)
 	}
-	return config, nil
+	return res, nil
+}
+
+func (sm *sessionManager) writeFRRConfig(config frrv1alpha1.FRRConfiguration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	currentConfig := &frrv1alpha1.FRRConfiguration{}
+	key := client.ObjectKey{Name: config.Name, Namespace: config.Namespace}
+	err := sm.client.Get(ctx, key, currentConfig)
+	if errors.IsNotFound(err) {
+		err = sm.client.Create(ctx, &config)
+		if err != nil {
+			return &bgp.TemporaryError{Err: err}
+		}
+		return nil
+	}
+
+	currentConfig.Spec = config.Spec
+	err = sm.client.Update(ctx, currentConfig)
+	if err != nil {
+		return &bgp.TemporaryError{Err: err}
+	}
+	return nil
 }
 
 var debounceTimeout = 3 * time.Second
 var failureTimeout = time.Second * 5
 
-func NewSessionManager(l log.Logger, logLevel logging.Level) bgp.SessionManager {
+func NewSessionManager(l log.Logger, cli client.Client, node, namespace string, logLevel logging.Level) bgp.SessionManager {
 	res := &sessionManager{
-		sessions:     map[string]*session{},
-		bfdProfiles:  []BFDProfile{},
-		reloadConfig: make(chan reloadEvent),
-		logLevel:     logLevelToFRR(logLevel),
+		sessions:         map[string]*session{},
+		client:           cli,
+		logLevel:         logLevelToFRR(logLevel),
+		currentNode:      node,
+		metallbNamespace: namespace,
 	}
-	reload := func(config *frrConfig) error {
-		return generateAndReloadConfigFile(config, l)
-	}
-
-	debouncer(reload, res.reloadConfig, debounceTimeout, failureTimeout, l)
-
-	reloadValidator(l, res.reloadConfig)
 
 	return res
 }
 
-func mockNewSessionManager(l log.Logger, logLevel logging.Level) *sessionManager {
-	res := &sessionManager{
-		sessions:     map[string]*session{},
-		bfdProfiles:  []BFDProfile{},
-		reloadConfig: make(chan reloadEvent),
-		logLevel:     logLevelToFRR(logLevel),
-	}
-	reload := func(config *frrConfig) error {
-		return generateAndReloadConfigFile(config, l)
-	}
-
-	debouncer(reload, res.reloadConfig, debounceTimeout, failureTimeout, l)
-
-	reloadValidator(l, res.reloadConfig)
-
-	return res
-}
-
-func reloadValidator(l log.Logger, reload chan<- reloadEvent) {
-	var tickerIntervals = 30 * time.Second
-	var prevReloadTimeStamp string
-
-	ticker := time.NewTicker(tickerIntervals)
-	go func() {
-		for range ticker.C {
-			validateReload(l, &prevReloadTimeStamp, reload)
-		}
-	}()
-}
-
-const statusFileName = "/etc/frr_reloader/.status"
-
-func validateReload(l log.Logger, prevReloadTimeStamp *string, reload chan<- reloadEvent) {
-	bytes, err := os.ReadFile(statusFileName)
-	if err != nil {
-		if !os.IsNotExist(err) {
-			level.Error(l).Log("op", "reload-validate", "error", err, "cause", "readFile", "fileName", statusFileName)
-		}
-		return
-	}
-
-	lastReloadStatus := strings.Fields(string(bytes))
-	if len(lastReloadStatus) != 2 {
-		level.Error(l).Log("op", "reload-validate", "error", err, "cause", "Fields", "bytes", string(bytes))
-		return
-	}
-
-	timeStamp, status := lastReloadStatus[0], lastReloadStatus[1]
-	if timeStamp == *prevReloadTimeStamp {
-		return
-	}
-
-	*prevReloadTimeStamp = timeStamp
-
-	if strings.Compare(status, "failure") == 0 {
-		level.Error(l).Log("op", "reload-validate", "error", fmt.Errorf("reload failure"),
-			"cause", "frr reload failed", "status", status)
-		reload <- reloadEvent{useOld: true}
-		return
-	}
-
-	level.Info(l).Log("op", "reload-validate", "success", "reloaded config")
-}
-
+/*
 func configBFDProfileToFRR(p *metallbconfig.BFDProfile) *BFDProfile {
 	res := &BFDProfile{}
 	res.Name = p.Name
@@ -420,6 +388,7 @@ func configBFDProfileToFRR(p *metallbconfig.BFDProfile) *BFDProfile {
 	res.MinimumTTL = p.MinimumTTL
 	return res
 }
+*/
 
 func logLevelToFRR(level logging.Level) string {
 	// Allowed frr log levels are: emergencies, alerts, critical,
