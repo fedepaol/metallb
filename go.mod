@@ -23,9 +23,9 @@ require (
 	golang.org/x/sync v0.2.0
 	golang.org/x/sys v0.8.0
 	k8s.io/api v0.26.4
-	k8s.io/apiextensions-apiserver v0.26.1
+	k8s.io/apiextensions-apiserver v0.26.3
 	k8s.io/apimachinery v0.26.4
-	k8s.io/client-go v0.26.1
+	k8s.io/client-go v0.26.3
 	k8s.io/klog v1.0.0
 	k8s.io/kubernetes v1.26.1
 	k8s.io/pod-security-admission v0.0.0
@@ -37,6 +37,7 @@ require (
 require (
 	golang.org/x/mod v0.9.0 // indirect
 	golang.org/x/tools v0.7.0 // indirect
+	sigs.k8s.io/gateway-api v0.7.0 // indirect
 )
 
 // pinning to specific versions is required because we are consuming
@@ -110,7 +111,7 @@ require (
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/sirupsen/logrus v1.8.1 // indirect
-	github.com/spf13/cobra v1.6.0 // indirect
+	github.com/spf13/cobra v1.6.1 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/xeipuuv/gojsonpointer v0.0.0-20180127040702-4e3ac2762d5f // indirect
 	github.com/xeipuuv/gojsonreference v0.0.0-20180127040603-bd5ef7bd5415 // indirect
@@ -146,7 +147,7 @@ require (
 	k8s.io/cloud-provider v0.0.0 // indirect
 	k8s.io/component-base v0.26.1 // indirect
 	k8s.io/component-helpers v0.26.0 // indirect
-	k8s.io/klog/v2 v2.90.0 // indirect
+	k8s.io/klog/v2 v2.100.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20230123231816-1cb3ae25d79a // indirect
 	k8s.io/kubectl v0.0.0 // indirect
 	k8s.io/kubelet v0.0.0 // indirect
