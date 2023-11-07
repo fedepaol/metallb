@@ -3,3 +3,6 @@ kind: Kustomization
 resources:
 - https://github.com/metallb/frr-k8s/config/default/?timeout=120&ref=main
 - ../native
+images:
+- name: quay.io/metallb/frr-k8s
+  newTag: main
