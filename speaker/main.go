@@ -27,6 +27,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.universe.tf/metallb/internal/bgp"
 	"go.universe.tf/metallb/internal/config"
@@ -39,6 +40,7 @@ import (
 	"go.universe.tf/metallb/internal/speakerlist"
 	"go.universe.tf/metallb/internal/version"
 	v1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/yaml"
 )
 
@@ -74,7 +76,7 @@ func main() {
 		mlBindAddr        = flag.String("ml-bindaddr", os.Getenv("METALLB_ML_BIND_ADDR"), "Bind addr for MemberList (fast dead node detection)")
 		mlBindPort        = flag.String("ml-bindport", os.Getenv("METALLB_ML_BIND_PORT"), "Bind port for MemberList (fast dead node detection)")
 		mlLabels          = flag.String("ml-labels", os.Getenv("METALLB_ML_LABELS"), "Labels to match the speakers (for MemberList / fast dead node detection)")
-		mlSecretKeyPath   = flag.String("ml-secret-key-path", os.Getenv("METALLB_ML_SECRET_KEY_PATH"), "Path to where the MemberList's secret key is mounted")
+		mlSecretKeyPath   = flag.String("ml-secret-key-path", os.Getenv("METALLB_ML_SECRET_KEY_PATH"), "Path to where the MembeList's secret key is mounted")
 		myNode            = flag.String("node-name", os.Getenv("METALLB_NODE_NAME"), "name of this Kubernetes node (spec.nodeName)")
 		port              = flag.Int("port", 7472, "HTTP listening port")
 		logLevel          = flag.String("log-level", "info", fmt.Sprintf("log level. must be one of: [%s]", logging.Levels.String()))
@@ -150,6 +152,7 @@ func main() {
 	// Setup all clients and speakers, config decides what is being done runtime.
 	ctrl, err := newController(controllerConfig{
 		MyNode:                 *myNode,
+		Namespace:              *namespace,
 		Logger:                 logger,
 		LogLevel:               logging.Level(*logLevel),
 		SList:                  sList,
@@ -193,6 +196,7 @@ func main() {
 		os.Exit(1)
 	}
 	ctrl.client = client
+	ctrl.K8sClient = client.ManagerClient()
 
 	sList.Start(client)
 	defer sList.Stop()
@@ -208,8 +212,9 @@ type controller struct {
 	nodes   map[string]*v1.Node
 	bgpType bgpImplementation
 
-	config *config.Config
-	client service
+	config    *config.Config
+	client    service
+	K8sClient client.Client
 
 	protocolHandlers map[config.Proto]Protocol
 	announced        map[config.Proto]map[string]bool // for each protocol, says if we are advertising the given service
@@ -219,10 +224,11 @@ type controller struct {
 }
 
 type controllerConfig struct {
-	MyNode   string
-	Logger   log.Logger
-	LogLevel logging.Level
-	SList    SpeakerList
+	MyNode    string
+	Namespace string
+	Logger    log.Logger
+	LogLevel  logging.Level
+	SList     SpeakerList
 
 	bgpType bgpImplementation
 
@@ -241,7 +247,7 @@ func newController(cfg controllerConfig) (*controller, error) {
 			myNode:         cfg.MyNode,
 			svcAds:         make(map[string][]*bgp.Advertisement),
 			bgpType:        cfg.bgpType,
-			sessionManager: newBGP(cfg.bgpType, cfg.Logger, cfg.LogLevel),
+			sessionManager: newBGP(cfg),
 		},
 	}
 	protocols := []config.Proto{config.BGP}
@@ -500,7 +506,12 @@ func (c *controller) SetConfig(l log.Logger, cfg *config.Config) controllers.Syn
 	}
 
 	for proto, handler := range c.protocolHandlers {
-		if err := handler.SetConfig(l, cfg); err != nil {
+		err := handler.SetConfig(l, cfg)
+		if isTemporaryError(err) {
+			level.Error(l).Log("op", "setConfig", "protocol", proto, "error", err, "msg", "applying new configuration to protocol handler failed, retry")
+			return controllers.SyncStateError
+		}
+		if err != nil {
 			level.Error(l).Log("op", "setConfig", "protocol", proto, "error", err, "msg", "applying new configuration to protocol handler failed")
 			return controllers.SyncStateErrorNoRetry
 		}
@@ -531,6 +542,16 @@ func (c *controller) SetNode(l log.Logger, node *v1.Node) controllers.SyncState 
 
 func isNetworkConditionChanged(nodeName string, oldNodes map[string]*v1.Node, newNode *v1.Node) bool {
 	return k8snodes.IsNetworkUnavailable(oldNodes[nodeName]) != k8snodes.IsNetworkUnavailable(newNode)
+}
+
+func isTemporaryError(err error) bool {
+	if err == nil {
+		return false
+	}
+	if errors.As(err, &bgp.TemporaryError{}) {
+		return true
+	}
+	return false
 }
 
 // A Protocol can advertise an IP address.

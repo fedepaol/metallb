@@ -11,7 +11,6 @@ import (
 	"testing"
 
 	"go.universe.tf/metallb/internal/bgp"
-	"go.universe.tf/metallb/internal/bgp/community"
 	"go.universe.tf/metallb/internal/config"
 	"go.universe.tf/metallb/internal/k8s/controllers"
 	"go.universe.tf/metallb/internal/k8s/epslices"
@@ -74,11 +73,11 @@ func sortAds(ads map[string][]*bgp.Advertisement) {
 			if len(a.Communities) != len(b.Communities) {
 				return len(a.Communities) < len(b.Communities)
 			}
-			sort.Slice(a.Communities, func(i, j int) bool { return a.Communities[i].LessThan(a.Communities[j]) })
-			sort.Slice(b.Communities, func(i, j int) bool { return b.Communities[i].LessThan(b.Communities[j]) })
+			sort.Slice(a.Communities, func(i, j int) bool { return a.Communities[i] < a.Communities[j] })
+			sort.Slice(b.Communities, func(i, j int) bool { return b.Communities[i] < b.Communities[j] })
 			for k := range a.Communities {
 				if a.Communities[k] != b.Communities[k] {
-					return a.Communities[k].LessThan(b.Communities[k])
+					return a.Communities[k] < b.Communities[k]
 				}
 			}
 			return false
@@ -587,14 +586,8 @@ func TestBGPSpeaker(t *testing.T) {
 							{
 								AggregationLength: 32,
 								LocalPref:         100,
-								Communities: func() map[community.BGPCommunity]bool {
-									community1, _ := community.New("0:1234")
-									community2, _ := community.New("0:2345")
-									community3, _ := community.New("large:123:456:789")
-									return map[community.BGPCommunity]bool{community1: true, community2: true,
-										community3: true}
-								}(),
-								Nodes: map[string]bool{"pandora": true},
+								Communities:       map[uint32]bool{1234: true, 2345: true},
+								Nodes:             map[string]bool{"pandora": true},
 							},
 							{
 								AggregationLength: 24,
@@ -631,14 +624,9 @@ func TestBGPSpeaker(t *testing.T) {
 			wantAds: map[string][]*bgp.Advertisement{
 				"1.2.3.4:0": {
 					{
-						Prefix:    ipnet("10.20.30.1/32"),
-						LocalPref: 100,
-						Communities: func() []community.BGPCommunity {
-							community1, _ := community.New("0:1234")
-							community2, _ := community.New("0:2345")
-							community3, _ := community.New("large:123:456:789")
-							return []community.BGPCommunity{community3, community1, community2}
-						}(),
+						Prefix:      ipnet("10.20.30.1/32"),
+						LocalPref:   100,
+						Communities: []uint32{1234, 2345},
 					},
 					{
 						Prefix:    ipnet("10.20.30.0/24"),
@@ -665,12 +653,8 @@ func TestBGPSpeaker(t *testing.T) {
 							{
 								AggregationLength: 32,
 								LocalPref:         100,
-								Communities: func() map[community.BGPCommunity]bool {
-									community1, _ := community.New("0:1234")
-									community2, _ := community.New("0:2345")
-									return map[community.BGPCommunity]bool{community1: true, community2: true}
-								}(),
-								Nodes: map[string]bool{"pandora": true},
+								Communities:       map[uint32]bool{1234: true, 2345: true},
+								Nodes:             map[string]bool{"pandora": true},
 							},
 							{
 								AggregationLength: 24,
@@ -707,13 +691,9 @@ func TestBGPSpeaker(t *testing.T) {
 			wantAds: map[string][]*bgp.Advertisement{
 				"1.2.3.4:0": {
 					{
-						Prefix:    ipnet("10.20.30.1/32"),
-						LocalPref: 100,
-						Communities: func() []community.BGPCommunity {
-							community1, _ := community.New("0:1234")
-							community2, _ := community.New("0:2345")
-							return []community.BGPCommunity{community1, community2}
-						}(),
+						Prefix:      ipnet("10.20.30.1/32"),
+						LocalPref:   100,
+						Communities: []uint32{1234, 2345},
 					},
 				},
 			},
@@ -738,13 +718,9 @@ func TestBGPSpeaker(t *testing.T) {
 							{
 								AggregationLength: 32,
 								LocalPref:         100,
-								Communities: func() map[community.BGPCommunity]bool {
-									community1, _ := community.New("0:1234")
-									community2, _ := community.New("0:2345")
-									return map[community.BGPCommunity]bool{community1: true, community2: true}
-								}(),
-								Peers: []string{"peer1"},
-								Nodes: map[string]bool{"pandora": true},
+								Communities:       map[uint32]bool{1234: true, 2345: true},
+								Peers:             []string{"peer1"},
+								Nodes:             map[string]bool{"pandora": true},
 							},
 							{
 								AggregationLength: 24,
@@ -781,14 +757,10 @@ func TestBGPSpeaker(t *testing.T) {
 			wantAds: map[string][]*bgp.Advertisement{
 				"1.2.3.4:0": {
 					{
-						Prefix:    ipnet("10.20.30.1/32"),
-						LocalPref: 100,
-						Communities: func() []community.BGPCommunity {
-							community1, _ := community.New("0:1234")
-							community2, _ := community.New("0:2345")
-							return []community.BGPCommunity{community1, community2}
-						}(),
-						Peers: []string{"peer1"},
+						Prefix:      ipnet("10.20.30.1/32"),
+						LocalPref:   100,
+						Communities: []uint32{1234, 2345},
+						Peers:       []string{"peer1"},
 					},
 					{
 						Prefix:    ipnet("10.20.30.0/24"),
@@ -1506,44 +1478,6 @@ func TestBGPSpeakerEPSlices(t *testing.T) {
 		},
 
 		{
-			desc:     "Endpoint list contains serving but not ready endpoints",
-			balancer: "test1",
-			svc: &v1.Service{
-				Spec: v1.ServiceSpec{
-					Type:                  "LoadBalancer",
-					ExternalTrafficPolicy: "Cluster",
-				},
-				Status: statusAssigned("10.20.30.1"),
-			},
-			eps: epslices.EpsOrSlices{
-				SlicesVal: []discovery.EndpointSlice{
-					{
-						Endpoints: []discovery.Endpoint{
-							{
-								Addresses: []string{
-									"2.3.4.5",
-								},
-								NodeName: stringPtr("iris"),
-								Conditions: discovery.EndpointConditions{
-									Ready:   pointer.BoolPtr(false),
-									Serving: pointer.BoolPtr(true),
-								},
-							},
-						},
-					},
-				},
-				Type: epslices.Slices,
-			},
-			wantAds: map[string][]*bgp.Advertisement{
-				"1.2.3.4:0": {
-					{
-						Prefix: ipnet("10.20.30.1/32"),
-					},
-				},
-			},
-		},
-
-		{
 			desc: "Multiple advertisement config",
 			config: &config.Config{
 				Peers: map[string]*config.Peer{
@@ -1559,12 +1493,8 @@ func TestBGPSpeakerEPSlices(t *testing.T) {
 							{
 								AggregationLength: 32,
 								LocalPref:         100,
-								Communities: func() map[community.BGPCommunity]bool {
-									community1, _ := community.New("0:1234")
-									community2, _ := community.New("0:2345")
-									return map[community.BGPCommunity]bool{community1: true, community2: true}
-								}(),
-								Nodes: map[string]bool{"pandora": true},
+								Communities:       map[uint32]bool{1234: true, 2345: true},
+								Nodes:             map[string]bool{"pandora": true},
 							},
 							{
 								AggregationLength: 24,
@@ -1604,13 +1534,9 @@ func TestBGPSpeakerEPSlices(t *testing.T) {
 			wantAds: map[string][]*bgp.Advertisement{
 				"1.2.3.4:0": {
 					{
-						Prefix:    ipnet("10.20.30.1/32"),
-						LocalPref: 100,
-						Communities: func() []community.BGPCommunity {
-							community1, _ := community.New("0:1234")
-							community2, _ := community.New("0:2345")
-							return []community.BGPCommunity{community1, community2}
-						}(),
+						Prefix:      ipnet("10.20.30.1/32"),
+						LocalPref:   100,
+						Communities: []uint32{1234, 2345},
 					},
 					{
 						Prefix:    ipnet("10.20.30.0/24"),

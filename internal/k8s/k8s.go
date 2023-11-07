@@ -416,6 +416,10 @@ func (c *Client) Errorf(svc *corev1.Service, kind, msg string, args ...interface
 	c.events.Eventf(svc, corev1.EventTypeWarning, kind, msg, args...)
 }
 
+func (c *Client) ManagerClient() client.Client {
+	return c.mgr.GetClient()
+}
+
 // UseEndpointSlices detect if Endpoints Slices are enabled in the cluster.
 func UseEndpointSlices(kubeClient kubernetes.Interface) bool {
 	if _, err := kubeClient.Discovery().ServerResourcesForGroupVersion(discovery.SchemeGroupVersion.String()); err != nil {
