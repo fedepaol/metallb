@@ -26,16 +26,10 @@ type sessionManager struct {
 	currentNode      string
 	sync.Mutex
 	desiredConfig         frrv1beta1.FRRConfiguration
-	configChangedCallback NewConfigAvailable
+	configChangedCallback func(interface{})
 }
 
-type Config interface {
-	Desired() frrv1beta1.FRRConfiguration
-}
-
-type NewConfigAvailable func(interface{})
-
-func (sm *sessionManager) SetEventListener(callback NewConfigAvailable) {
+func (sm *sessionManager) SetEventListener(callback func(interface{})) {
 	sm.Lock()
 	defer sm.Unlock()
 	sm.configChangedCallback = callback
@@ -343,15 +337,13 @@ func (sm *sessionManager) updateConfig() error {
 
 var debounceTimeout = 3 * time.Second
 
-func NewSessionManager(l log.Logger, node, namespace string, configChangedCallback NewConfigAvailable) bgp.SessionManager {
+func NewSessionManager(l log.Logger, node, namespace string) bgp.SessionManager {
 	res := &sessionManager{
-		sessions:              map[string]*session{},
-		currentNode:           node,
-		metallbNamespace:      namespace,
-		configChangedCallback: configChangedCallback,
+		sessions:         map[string]*session{},
+		currentNode:      node,
+		metallbNamespace: namespace,
 	}
 
-	// 	debouncer(configChangedCallback, res.configChangedChan, debounceTimeout)
 	return res
 }
 

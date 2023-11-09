@@ -195,6 +195,7 @@ func main() {
 		os.Exit(1)
 	}
 	ctrl.client = client
+	ctrl.protocolHandlers[config.BGP].SetEventListener(client.BGPEventListener)
 
 	sList.Start(client)
 	defer sList.Stop()
@@ -238,14 +239,13 @@ type controllerConfig struct {
 }
 
 func newController(cfg controllerConfig) (*controller, error) {
-	bgpSessionManager := newBGP(cfg)
 	handlers := map[config.Proto]Protocol{
 		config.BGP: &bgpController{
 			logger:         cfg.Logger,
 			myNode:         cfg.MyNode,
 			svcAds:         make(map[string][]*bgp.Advertisement),
 			bgpType:        cfg.bgpType,
-			sessionManager: bgpSessionManager,
+			sessionManager: newBGP(cfg),
 		},
 	}
 	protocols := []config.Proto{config.BGP}
@@ -545,6 +545,7 @@ type Protocol interface {
 	SetBalancer(log.Logger, string, []net.IP, *config.Pool, service, *v1.Service) error
 	DeleteBalancer(log.Logger, string, string) error
 	SetNode(log.Logger, *v1.Node) error
+	SetEventListener(func(interface{}))
 }
 
 // Speakerlist represents a list of healthy speakers.

@@ -32,6 +32,7 @@ import (
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
+	frrv1beta1 "github.com/metallb/frrk8s/api/v1beta1"
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	discovery "k8s.io/api/discovery/v1"
@@ -88,11 +89,12 @@ func init() {
 type Client struct {
 	logger log.Logger
 
-	client         *kubernetes.Clientset
-	events         record.EventRecorder
-	mgr            manager.Manager
-	validateConfig config.Validate
-	ForceSync      func()
+	client           *kubernetes.Clientset
+	events           record.EventRecorder
+	mgr              manager.Manager
+	validateConfig   config.Validate
+	ForceSync        func()
+	BGPEventListener (func(interface{}))
 }
 
 // Config specifies the configuration of the Kubernetes
@@ -127,22 +129,25 @@ func New(cfg *Config) (*Client, error) {
 		Field: fields.ParseSelectorOrDie(fmt.Sprintf("metadata.namespace=%s", cfg.Namespace)),
 	}
 
+	objectsPerNamespace := map[client.Object]cache.ByObject{
+		&metallbv1beta1.AddressPool{}:      namespaceSelector,
+		&metallbv1beta1.BFDProfile{}:       namespaceSelector,
+		&metallbv1beta1.BGPAdvertisement{}: namespaceSelector,
+		&metallbv1beta1.BGPPeer{}:          namespaceSelector,
+		&metallbv1beta1.IPAddressPool{}:    namespaceSelector,
+		&metallbv1beta1.L2Advertisement{}:  namespaceSelector,
+		&metallbv1beta2.BGPPeer{}:          namespaceSelector,
+		&metallbv1beta1.Community{}:        namespaceSelector,
+		&corev1.Secret{}:                   namespaceSelector,
+		&corev1.ConfigMap{}:                namespaceSelector,
+	}
+	objectsPerNamespace[&frrv1beta1.FRRConfiguration{}] = namespaceSelector
+
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:         scheme,
 		LeaderElection: false,
 		Cache: cache.Options{
-			ByObject: map[client.Object]cache.ByObject{
-				&metallbv1beta1.AddressPool{}:      namespaceSelector,
-				&metallbv1beta1.BFDProfile{}:       namespaceSelector,
-				&metallbv1beta1.BGPAdvertisement{}: namespaceSelector,
-				&metallbv1beta1.BGPPeer{}:          namespaceSelector,
-				&metallbv1beta1.IPAddressPool{}:    namespaceSelector,
-				&metallbv1beta1.L2Advertisement{}:  namespaceSelector,
-				&metallbv1beta2.BGPPeer{}:          namespaceSelector,
-				&metallbv1beta1.Community{}:        namespaceSelector,
-				&corev1.Secret{}:                   namespaceSelector,
-				&corev1.ConfigMap{}:                namespaceSelector,
-			},
+			ByObject: objectsPerNamespace,
 		},
 		WebhookServer: webhookServer(9443, cfg.WebhookWithHTTP2),
 		Metrics: metricsserver.Options{
@@ -217,6 +222,20 @@ func New(cfg *Config) (*Client, error) {
 			return nil, errors.Wrap(err, "failed to create node reconciler")
 		}
 	}
+
+	// TODO if bgpfrrk8s
+	frrk8sController := controllers.FRRK8sReconciler{
+		Client:    mgr.GetClient(),
+		Logger:    cfg.Logger,
+		Scheme:    mgr.GetScheme(),
+		Namespace: cfg.Namespace,
+		NodeName:  cfg.NodeName,
+	}
+	if err = frrk8sController.SetupWithManager(mgr); err != nil {
+		level.Error(c.logger).Log("error", err, "unable to create controller", "node")
+		return nil, errors.Wrap(err, "failed to create frrk8s reconciler")
+	}
+	c.BGPEventListener = frrk8sController.UpdateConfig
 
 	// use DisableEpSlices to skip the autodiscovery mechanism. Useful if EndpointSlices are enabled in the cluster but disabled in kube-proxy
 	useSlices := UseEndpointSlices(c.client) && !cfg.DisableEpSlices

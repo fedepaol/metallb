@@ -108,6 +108,10 @@ newPeers:
 	return c.syncPeers(l)
 }
 
+func (c *bgpController) SetEventListener(listener func(interface{})) {
+	c.sessionManager.SetEventListener(listener)
+}
+
 // hasHealthyEndpoint return true if this node has at least one healthy endpoint.
 // It only checks nodes matching the given filterNode function.
 func hasHealthyEndpoint(eps epslices.EpsOrSlices, filterNode func(*string) bool) bool {
@@ -246,9 +250,6 @@ func (c *bgpController) syncPeers(l log.Logger) error {
 				},
 			)
 
-			if errors.As(err, &bgp.TemporaryError{}) {
-				return err
-			}
 			if err != nil {
 				level.Error(l).Log("op", "syncPeers", "error", err, "peer", p.cfg.Addr, "msg", "failed to create BGP session")
 				errs++
@@ -374,7 +375,7 @@ var newBGP = func(cfg controllerConfig) bgp.SessionManager {
 	case bgpFrr:
 		return bgpfrr.NewSessionManager(cfg.Logger, cfg.LogLevel)
 	case bgpFrrK8s:
-		return bgpfrrk8s.NewSessionManager(cfg.Logger, cfg.MyNode, cfg.Namespace, cfg.OnFrrK8sConfigChanged)
+		return bgpfrrk8s.NewSessionManager(cfg.Logger, cfg.MyNode, cfg.Namespace)
 	default:
 		panic(fmt.Sprintf("unsupported BGP implementation type: %s", cfg.bgpType))
 	}

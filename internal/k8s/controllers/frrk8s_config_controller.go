@@ -18,7 +18,6 @@ package controllers
 
 import (
 	"context"
-	"reflect"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -26,8 +25,6 @@ import (
 	frrv1beta1 "github.com/metallb/frrk8s/api/v1beta1"
 	frrk8s "go.universe.tf/metallb/internal/bgp/frrk8s"
 
-	corev1 "k8s.io/api/core/v1"
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"k8s.io/apimachinery/pkg/runtime"
@@ -60,13 +57,11 @@ func NewFRRK8sConfigEvent() event.GenericEvent {
 
 type FRRK8sReconciler struct {
 	client.Client
-	Logger        log.Logger
-	Scheme        *runtime.Scheme
-	NodeName      string
-	Namespace     string
-	Handler       func(log.Logger, *corev1.Node) SyncState
-	Reload        chan event.GenericEvent
-	DesiredConfig frrk8s.Config
+	Logger    log.Logger
+	Scheme    *runtime.Scheme
+	NodeName  string
+	Namespace string
+	Reload    chan event.GenericEvent
 }
 
 func (r *FRRK8sReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
@@ -80,18 +75,19 @@ func (r *FRRK8sReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctr
 		return ctrl.Result{}, client.IgnoreNotFound(err)
 	}
 
-	desired := r.DesiredConfig.Desired()
-	if reflect.DeepEqual(cfg.Spec, desired.Spec) {
-		return ctrl.Result{}, nil
-	}
-	err = r.Update(ctx, &desired)
-	if apierrors.IsNotFound(err) {
-		err = r.Create(ctx, &desired)
-	}
-	if err != nil {
-		level.Info(r.Logger).Log("controller", "NodeReconciler", "event", "force service reload")
-		return ctrl.Result{}, err
-	}
+	/*
+		if reflect.DeepEqual(cfg.Spec, desired.Spec) {
+			return ctrl.Result{}, nil
+		}
+		err = r.Update(ctx, &desired)
+		if apierrors.IsNotFound(err) {
+			err = r.Create(ctx, &desired)
+		}
+		if err != nil {
+			level.Info(r.Logger).Log("controller", "NodeReconciler", "event", "force service reload")
+			return ctrl.Result{}, err
+		}
+	*/
 
 	return ctrl.Result{}, nil
 }
@@ -120,6 +116,7 @@ func (r *FRRK8sReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		Complete(r)
 }
 
-func (r *FRRK8sReconciler) UpdateConfig() {
+func (r *FRRK8sReconciler) UpdateConfig(config interface{}) {
+	// TODO
 	r.Reload <- NewReloadEvent()
 }
