@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/davecgh/go-spew/spew"
 	"github.com/go-kit/log"
 	frrv1beta1 "github.com/metallb/frrk8s/api/v1beta1"
 	"go.universe.tf/metallb/internal/bgp"
@@ -151,7 +152,10 @@ func (sm *sessionManager) deleteSession(s *session) error {
 }
 
 func (sm *sessionManager) SyncExtraInfo(extraInfo string) error {
-	return errors.New("extra info not supported in frr-k8s mode")
+	if extraInfo != "" {
+		return errors.New("extra info not supported in frr-k8s mode")
+	}
+	return nil
 }
 
 func (sm *sessionManager) SyncBFDProfiles(profiles map[string]*metallbconfig.BFDProfile) error {
@@ -331,6 +335,7 @@ func (sm *sessionManager) updateConfig() error {
 	}
 	sm.desiredConfig = newConfig
 	toNotify := sm.desiredConfig.DeepCopy()
+	spew.Dump("FEDE", toNotify)
 	sm.configChangedCallback(*toNotify)
 	return nil
 }

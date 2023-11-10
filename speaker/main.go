@@ -170,6 +170,10 @@ func main() {
 		validateConfig = config.DiscardNativeOnly
 	}
 
+	listenFRRK8s := false
+	if bgpType == string(bgpFrrK8s) {
+		listenFRRK8s = true
+	}
 	client, err := k8s.New(&k8s.Config{
 		ProcessName:     "metallb-speaker",
 		NodeName:        *myNode,
@@ -189,6 +193,7 @@ func main() {
 		},
 		ValidateConfig:    validateConfig,
 		LoadBalancerClass: *loadBalancerClass,
+		WithFRRK8s:        listenFRRK8s,
 	})
 	if err != nil {
 		level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to create k8s client")

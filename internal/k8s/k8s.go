@@ -80,6 +80,7 @@ func init() {
 	utilruntime.Must(rbacv1.AddToScheme(scheme))
 	utilruntime.Must(apiext.AddToScheme(scheme))
 	utilruntime.Must(discovery.AddToScheme(scheme))
+	utilruntime.Must(frrv1beta1.AddToScheme(scheme))
 
 	// +kubebuilder:scaffold:scheme
 }
@@ -117,6 +118,7 @@ type Config struct {
 	CertServiceName     string
 	LoadBalancerClass   string
 	WebhookWithHTTP2    bool
+	WithFRRK8s          bool
 	Listener
 }
 
@@ -141,7 +143,9 @@ func New(cfg *Config) (*Client, error) {
 		&corev1.Secret{}:                   namespaceSelector,
 		&corev1.ConfigMap{}:                namespaceSelector,
 	}
-	objectsPerNamespace[&frrv1beta1.FRRConfiguration{}] = namespaceSelector
+	if cfg.WithFRRK8s {
+		objectsPerNamespace[&frrv1beta1.FRRConfiguration{}] = namespaceSelector
+	}
 
 	mgr, err := ctrl.NewManager(ctrl.GetConfigOrDie(), ctrl.Options{
 		Scheme:         scheme,
@@ -223,19 +227,23 @@ func New(cfg *Config) (*Client, error) {
 		}
 	}
 
-	// TODO if bgpfrrk8s
-	frrk8sController := controllers.FRRK8sReconciler{
-		Client:    mgr.GetClient(),
-		Logger:    cfg.Logger,
-		Scheme:    mgr.GetScheme(),
-		Namespace: cfg.Namespace,
-		NodeName:  cfg.NodeName,
+	if cfg.WithFRRK8s {
+		fmt.Println("FEDE setup")
+		frrk8sController := controllers.FRRK8sReconciler{
+			Client:    mgr.GetClient(),
+			Logger:    cfg.Logger,
+			Scheme:    mgr.GetScheme(),
+			Namespace: cfg.Namespace,
+			NodeName:  cfg.NodeName,
+			Reload:    make(chan event.GenericEvent),
+		}
+		if err := frrk8sController.SetupWithManager(mgr); err != nil {
+			level.Error(c.logger).Log("error", err, "unable to create controller", "node")
+			fmt.Println("FEDE error")
+			return nil, errors.Wrap(err, "failed to create frrk8s reconciler")
+		}
+		c.BGPEventListener = frrk8sController.UpdateConfig
 	}
-	if err = frrk8sController.SetupWithManager(mgr); err != nil {
-		level.Error(c.logger).Log("error", err, "unable to create controller", "node")
-		return nil, errors.Wrap(err, "failed to create frrk8s reconciler")
-	}
-	c.BGPEventListener = frrk8sController.UpdateConfig
 
 	// use DisableEpSlices to skip the autodiscovery mechanism. Useful if EndpointSlices are enabled in the cluster but disabled in kube-proxy
 	useSlices := UseEndpointSlices(c.client) && !cfg.DisableEpSlices

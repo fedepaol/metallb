@@ -41,7 +41,7 @@ type bgpImplementation string
 const (
 	bgpNative bgpImplementation = "native"
 	bgpFrr    bgpImplementation = "frr"
-	bgpFrrK8s bgpImplementation = "frrk8s"
+	bgpFrrK8s bgpImplementation = "frr-k8s"
 )
 
 type peer struct {
