@@ -6,7 +6,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1
 	github.com/go-kit/log v0.2.1
 	github.com/golang/protobuf v1.5.2
-	github.com/google/go-cmp v0.5.8
+	github.com/google/go-cmp v0.5.9
 	github.com/hashicorp/memberlist v0.3.1
 	github.com/mdlayher/arp v0.0.0-20220221190821-c37aaafac7f9
 	github.com/mdlayher/ethernet v0.0.0-20220221185849-529eae5b6118
@@ -33,7 +33,7 @@ require (
 	k8s.io/kubernetes v1.24.0
 	k8s.io/pod-security-admission v0.24.0
 	sigs.k8s.io/controller-runtime v0.13.0
-	sigs.k8s.io/yaml v1.3.0
+	sigs.k8s.io/yaml v1.4.0
 )
 
 require (
