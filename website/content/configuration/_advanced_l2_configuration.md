@@ -41,6 +41,7 @@ apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   name: example
+  namespace: metallb-system
 spec:
   ipAddressPools:
   - first-pool
@@ -56,6 +57,7 @@ apiVersion: metallb.io/v1beta1
 kind: L2Advertisement
 metadata:
   name: example
+  namespace: metallb-system
 spec:
   ipAddressPools:
   - second-pool

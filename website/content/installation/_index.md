@@ -63,10 +63,16 @@ kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/main/config/m
 ```
 
 {{% notice note %}}
-If you want to deploy MetalLB using the [experimental FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions), apply the manifests:
+If you want to deploy MetalLB using the [FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions), apply the manifests:
 
 ```bash
 kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/main/config/manifests/metallb-frr.yaml
+```
+
+If you want to deploy MetalLB using the [experimental FRR-K8s mode]({{% relref "concepts/bgp.md" %}}#frr-k8s-mode):
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/metallb/metallb/main/config/manifests/metallb-frr-k8s.yaml
 ```
 
 Please do note that these manifests deploy MetalLB from the main development branch. We highly encourage cloud operators to deploy a stable released version of MetalLB on production environments!
@@ -117,7 +123,7 @@ resources:
   - github.com/metallb/metallb/config/native?ref=main
 ```
 
-In order to deploy the [experimental FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions):
+In order to deploy the [FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions):
 
 ```yaml
 # kustomization.yml
@@ -126,6 +132,17 @@ namespace: metallb-system
 resources:
   - github.com/metallb/metallb/config/frr?ref=main
 ```
+
+In order to deploy the [experimental FRR-K8s mode]({{% relref "concepts/bgp.md" %}}#frr-k8s-mode):
+
+```yaml
+# kustomization.yml
+namespace: metallb-system
+
+resources:
+  - github.com/metallb/metallb/config/frr-k8s?ref=main
+```
+
 
 ## Installation with Helm
 
@@ -159,7 +176,7 @@ If you are using MetalLB with a kubernetes version that enforces [pod security a
 {{% /notice %}}
 
 {{% notice note %}}
-If you want to deploy MetalLB using the [experimental FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions), the following value must be set:
+If you want to deploy MetalLB using the [FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions), the following value must be set:
 
 ```yaml
 speaker:
@@ -169,12 +186,20 @@ speaker:
 
 {{% /notice %}}
 
+In order to deploy the [experimental FRR-K8s mode]({{% relref "concepts/bgp.md" %}}#frr-k8s-mode)
+the following value must be set:
+
+```yaml
+frrk8s:
+  enabled: true
+```
+
 ## Using the MetalLB Operator
 
 The MetalLB Operator is available on OperatorHub at [operatorhub.io/operator/metallb-operator](https://operatorhub.io/operator/metallb-operator). It eases the deployment and life-cycle of MetalLB in a cluster and allows configuring MetalLB via CRDs.
 
 {{% notice note %}}
-If you want to deploy MetalLB using the [experimental FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions), you must edit the ClusterServiceVersion resource
+If you want to deploy MetalLB using the [FRR mode](https://metallb.universe.tf/configuration/#enabling-bfd-support-for-bgp-sessions), you must edit the ClusterServiceVersion resource
 named `metallb-operator`:
 
 ```bash
@@ -186,6 +211,14 @@ and change the `BGP_TYPE` environment variable of the `manager` container to `fr
 ```yaml
 - name: METALLB_BGP_TYPE
   value: frr
+```
+
+If you want to deploy MetalLB using the [experimental FRR-K8s mode]({{% relref "concepts/bgp.md" %}}#frr-k8s-mode)
+change the `BGP_TYPE` environment variable of the `manager` container to `frr-k8s`:
+
+```yaml
+- name: METALLB_BGP_TYPE
+  value: frr-k8s
 ```
 
 {{% /notice %}}

@@ -102,7 +102,7 @@ def _is_network_exist(network):
 def _get_network_subnets(network):
     if _is_podman():
         cmd = ('podman network inspect {network} '.format(network=network) +
-        '-f "{{ range (index .plugins 0).ipam.ranges}}{{ (index . 0).subnet }} {{end}}"')
+        '-f "{{ range .Subnets }}{{.Subnet}} {{end}}"')
     else:
         cmd = ('docker network inspect {network} '.format(network=network) +
         '-f "{{ range .IPAM.Config}}{{.Subnet}} {{end}}"')
@@ -139,7 +139,8 @@ def _get_subnets_allocated_ips():
 
 def _add_nic_to_nodes(cluster_name):
     nodes = run("kind get nodes --name {name}".format(name=cluster_name)).stdout.strip().split("\n")
-    run("docker network create --ipv6 --subnet {ipv6_subnet} -d bridge {bridge_name}".format(bridge_name=extra_network, ipv6_subnet="fc00:f853:ccd:e791::/64"))
+    if not _is_network_exist(extra_network):
+        run("docker network create --ipv6 --subnet {ipv6_subnet} -d bridge {bridge_name}".format(bridge_name=extra_network, ipv6_subnet="fc00:f853:ccd:e791::/64"))
     for node in nodes:
         run("docker network connect {bridge_name} {node}".format(bridge_name=extra_network, node=node))
 
@@ -286,7 +287,7 @@ def validate_kind_version():
     except Exception as e:
         raise Exit(message="Could not determine kind version (is kind installed?)")
 
-    actual_version = re.search("v(\d*\.\d*\.\d*)", raw.stdout).group(1)
+    actual_version = re.search(r"v(\d*\.\d*\.\d*)", raw.stdout).group(1)
     delta = semver.compare(actual_version, min_version)
 
     if delta < 0:
@@ -294,8 +295,8 @@ def validate_kind_version():
 
 def generate_manifest(ctx, crd_options="crd:crdVersions=v1", bgp_type="native", output=None, with_prometheus=False):
     _fetch_kubectl()
-    run("GOPATH={} go install sigs.k8s.io/controller-tools/cmd/controller-gen@{}".format(build_path, controller_gen_version))
-    res = run("{}/bin/controller-gen {} rbac:roleName=manager-role webhook paths=\"./api/...\" output:crd:artifacts:config=config/crd/bases".format(build_path, crd_options))
+    run("GOBIN={}/bin/ GOPATH={} go install sigs.k8s.io/controller-tools/cmd/controller-gen@{}".format(build_path, build_path, controller_gen_version), echo=True)
+    res = run("{}/bin/controller-gen {} rbac:roleName=manager-role webhook paths=\"./api/...\" output:crd:artifacts:config=config/crd/bases".format(build_path, crd_options), echo=True)
     if not res.ok:
         raise Exit(message="Failed to generate manifests")
 
@@ -317,7 +318,7 @@ def generate_manifest(ctx, crd_options="crd:crdVersions=v1", bgp_type="native", 
     "ip_family": "Optional ipfamily of the cluster."
                  "Default: ipv4, supported families are 'ipv6' and 'dual'.",
     "bgp_type": "Type of BGP implementation to use."
-                "Supported: 'native' (default), 'frr'",
+                "Supported: 'frr' (default), 'native'",
     "frr_volume_dir": "FRR router config directory to be mounted inside frr container. "
                       "Default: ./dev-env/bgp/frr-volume",
     "log_level": "Log level for the controller and the speaker."
@@ -332,7 +333,7 @@ def generate_manifest(ctx, crd_options="crd:crdVersions=v1", bgp_type="native", 
                 "Default: False.",
 })
 def dev_env(ctx, architecture="amd64", name="kind", protocol=None, frr_volume_dir="",
-        node_img=None, ip_family="ipv4", bgp_type="native", log_level="info",
+        node_img=None, ip_family="ipv4", bgp_type="frr", log_level="info",
         helm_install=False, build_images=True, with_prometheus=False, with_api_audit=False):
     """Build and run MetalLB in a local Kind cluster.
 
@@ -418,10 +419,27 @@ apiServer:
                                "--set speaker.frr.secureMetricsPort=9121 "
                                "--set prometheus.serviceAccount=prometheus-k8s "
                                "--set prometheus.namespace=monitoring ")
+        frr_values=""
+        if bgp_type == "frr":
+            frr_values="--set speaker.frr.enabled=true "
+        if bgp_type == "frr-k8s":
+            frr_values="--set frrk8s.enabled=true --set speaker.frr.enabled=false --set frr-k8s.prometheus.serviceMonitor.enabled=false "
+            if with_prometheus:
+                frr_values=("--set frrk8s.enabled=true --set speaker.frr.enabled=false --set frr-k8s.prometheus.serviceMonitor.enabled=true "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[0].sourceLabels=\{__name__\} "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[0].regex=\"frrk8s_bgp_(.*)\" "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[0].targetLabel=\"__name__\" "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[0].replacement=\"metallb_bgp_\$1\" "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[1].sourceLabels=\{__name__\} "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[1].regex=\"frrk8s_bfd_(.*)\" "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[1].targetLabel=\"__name__\" "
+                            "--set frr-k8s.prometheus.serviceMonitor.metricRelabelings[1].replacement=\"metallb_bfd_\$1\" "
+                           )
+
         run("helm install metallb charts/metallb/ --set controller.image.tag=dev-{} "
-                "--set speaker.image.tag=dev-{} --set speaker.frr.enabled={} --set speaker.logLevel=debug "
-                "--set controller.logLevel=debug {} --namespace metallb-system".format(architecture, architecture,
-                "true" if bgp_type == "frr" else "false", prometheus_values), echo=True)
+                "--set speaker.image.tag=dev-{} --set speaker.logLevel=debug "
+                "--set controller.logLevel=debug {} {}  --namespace metallb-system".format(architecture, architecture,
+                prometheus_values, frr_values), echo=True)
     else:
         run("{} delete po -n metallb-system --all".format(kubectl_path), echo=True)
 
@@ -671,11 +689,13 @@ def bumprelease(ctx, version, previous_version):
 
     # Update the versions in the helm chart (version and appVersion are always the same)
     # helm chart versions follow Semantic Versioning, and thus exclude the leading 'v'
-    run("perl -pi -e 's,version: .*,version: {},g' charts/metallb/Chart.yaml".format(version), echo=True)
-    run("perl -pi -e 's,^appVersion: .*,appVersion: v{},g' charts/metallb/Chart.yaml".format(version), echo=True)
-    run("perl -pi -e 's,^version: .*,version: {},g' charts/metallb/charts/crds/Chart.yaml".format(version), echo=True)
-    run("perl -pi -e 's,^appVersion: .*,appVersion: v{},g' charts/metallb/charts/crds/Chart.yaml".format(version), echo=True)
-    run("perl -pi -e 's,^Current chart version is: .*,Current chart version is: `{}`,g' charts/metallb/README.md".format(version), echo=True)
+    # we change the version of the crd dependency only, ignoring the frr-k8s version that comes from main
+    run(r"sed -i '/condition: crds.enabled/{{N;s/version:.*/version: {}/;}}' charts/metallb/Chart.yaml".format(version), echo=True)
+    run(r"sed -i '/MetalLB chart version/{{N;s/version:.*/version: {}/;}}' charts/metallb/Chart.yaml".format(version), echo=True)
+    run(r"sed -i 's/^appVersion: .*/appVersion: v{}/g' charts/metallb/Chart.yaml".format(version), echo=True)
+    run(r"sed -i 's/^version: .*/version: {}/g' charts/metallb/charts/crds/Chart.yaml".format(version), echo=True)
+    run(r"sed -i 's/^appVersion: .*/appVersion: v{}/g' charts/metallb/charts/crds/Chart.yaml".format(version), echo=True)
+    run(r"sed -i 's/^Current chart version is: .*/Current chart version is: `{}`/g' charts/metallb/README.md".format(version), echo=True)
     run("helm dependency update charts/metallb", echo=True)
 
 
@@ -687,11 +707,11 @@ def bumprelease(ctx, version, previous_version):
     # TODO: Check if kustomize instructions really need the version in the
     # website or if there is a simpler way. For now, though, we just replace the
     # only page that mentions the version on release.
-    run("sed -i 's/github.com\/metallb\/metallb\/config\/native?ref=.*$/github.com\/metallb\/metallb\/config\/native?ref=v{}/g' website/content/installation/_index.md".format(version))
-    run("sed -i 's/github.com\/metallb\/metallb\/config\/frr?ref=.*$/github.com\/metallb\/metallb\/config\/frr?ref=v{}/g' website/content/installation/_index.md".format(version))
+    run(r"sed -i 's/github.com\/metallb\/metallb\/config\/native?ref=.*$/github.com\/metallb\/metallb\/config\/native?ref=v{}/g' website/content/installation/_index.md".format(version))
+    run(r"sed -i 's/github.com\/metallb\/metallb\/config\/frr?ref=.*$/github.com\/metallb\/metallb\/config\/frr?ref=v{}/g' website/content/installation/_index.md".format(version))
 
     # Update the version embedded in the binary
-    run("perl -pi -e 's/version\s+=.*/version = \"{}\"/g' internal/version/version.go".format(version), echo=True)
+    run(r"perl -pi -e 's/version\s+=.*/version = \"{}\"/g' internal/version/version.go".format(version), echo=True)
     run("gofmt -w internal/version/version.go", echo=True)
 
     res = run('grep ":main" config/manifests/*.yaml', warn=True).stdout
@@ -702,9 +722,11 @@ def bumprelease(ctx, version, previous_version):
 def test(ctx):
     """Run unit tests."""
     envtest_asset_dir = os.getcwd() + "/dev-env/unittest"
-    run("source {}/setup-envtest.sh; fetch_envtest_tools {}".format(envtest_asset_dir, envtest_asset_dir), echo=True)
-    run("source {}/setup-envtest.sh; setup_envtest_env {}; go test -short ./...".format(envtest_asset_dir, envtest_asset_dir), echo=True)
-    run("source {}/setup-envtest.sh; setup_envtest_env {}; go test -short -race ./...".format(envtest_asset_dir, envtest_asset_dir), echo=True)
+    k8s_version="1.27.1"
+    run("{}/setup-envtest.sh {}".format(envtest_asset_dir, envtest_asset_dir), echo=True)
+    kubebuilder_assets=run("{}/bin/setup-envtest use {} --bin-dir {}/bin -p path".format(envtest_asset_dir,k8s_version, envtest_asset_dir)).stdout.strip()
+    run("KUBEBUILDER_ASSETS={} go test -short ./...".format(kubebuilder_assets), echo=True)
+    run("KUBEBUILDER_ASSETS={} go test -short -race ./...".format(kubebuilder_assets), echo=True)
 
 @task
 def checkpatch(ctx):
@@ -714,7 +736,7 @@ def checkpatch(ctx):
         lines = run("git diff $(diff -u <(git rev-list --first-parent HEAD) "
                                 " <(git rev-list --first-parent origin/main) "
                                 " | sed -ne 's/^ //p' | head -1)..HEAD | "
-                                " grep '+.*\.\  '")
+                                r" grep '+.*\.\  '")
 
         if len(lines.stdout.strip()) > 0:
             raise Exit(message="ERROR: Found changed lines with 2 spaces "
@@ -784,12 +806,13 @@ def helmdocs(ctx, env="container"):
     "node_nics": "a list of node's interfaces separated by comma, default is kind",
     "local_nics": "a list of bridges related node's interfaces separated by comma, default is kind",
     "external_containers": "a comma separated list of external containers names to use for the test. (valid parameters are: ibgp-single-hop / ibgp-multi-hop / ebgp-single-hop / ebgp-multi-hop)",
-    "native_bgp": "tells if the given cluster is deployed using native bgp mode ",
+    "with_vrf": "tells if we want to run the tests against containers reacheable via linux VRFs",
+    "bgp_mode": "tells what bgp mode the cluster is using. valid values are native, frr, frr-k8s.",
     "external_frr_image": "overrides the image used for the external frr containers used in tests",
     "ginkgo_params": "additional ginkgo params to run the e2e tests with",
-    "host_bgp_mode": "tells whether to run the host container in ebgp or ibgp mode"
+    "host_bgp_mode": "tells whether to run the host container in ebgp or ibgp mode",
 })
-def e2etest(ctx, name="kind", export=None, kubeconfig=None, system_namespaces="kube-system,metallb-system", service_pod_port=80, skip_docker=False, focus="", skip="", ipv4_service_range=None, ipv6_service_range=None, prometheus_namespace="", node_nics="kind", local_nics="kind", external_containers="", native_bgp=False,external_frr_image="", ginkgo_params="", host_bgp_mode="ibgp"):
+def e2etest(ctx, name="kind", export=None, kubeconfig=None, system_namespaces="kube-system,metallb-system", service_pod_port=80, skip_docker=False, focus="", skip="", ipv4_service_range=None, ipv6_service_range=None, prometheus_namespace="", node_nics="kind", local_nics="kind", external_containers="", bgp_mode="", with_vrf=False,external_frr_image="", ginkgo_params="", host_bgp_mode="ibgp"):
     """Run E2E tests against development cluster."""
     _fetch_kubectl()
 
@@ -822,8 +845,14 @@ def e2etest(ctx, name="kind", export=None, kubeconfig=None, system_namespaces="k
     for ns in namespaces:
         run("{} -n {} wait --for=condition=Ready --all pods --timeout 300s".format(kubectl_path, ns), hide=True)
 
+    """
+       the control-plane node will be labeled "node.kubernetes.io/exclude-from-external-load-balancers" by default 
+       when the cluster is created. and when https://github.com/metallb/metallb/pull/2073 was merged in, which will 
+       affect the currently e2e tests. In order to code minimal changes, we should remove the label here.
+    """
+    nodes = dont_exclude_from_lb(name)
+
     if node_nics == "kind":
-        nodes = run("kind get nodes --name {name}".format(name=name)).stdout.strip().split("\n")
         node_nics = _get_node_nics(nodes[0])
 
     if local_nics == "kind":
@@ -852,13 +881,20 @@ def e2etest(ctx, name="kind", export=None, kubeconfig=None, system_namespaces="k
     if external_frr_image != "":
         external_frr_image = "--frr-image="+(external_frr_image)
     testrun = run("cd `git rev-parse --show-toplevel`/e2etest &&"
-            "KUBECONFIG={} ginkgo {} --timeout=3h {} {} -- --provider=local --kubeconfig={} --service-pod-port={} -ipv4-service-range={} -ipv6-service-range={} {} --report-path {} {} -node-nics {} -local-nics {} {}  -bgp-native-mode={} {} --host-bgp-mode={}".format(kubeconfig, ginkgo_params, ginkgo_focus, ginkgo_skip, kubeconfig, service_pod_port, ipv4_service_range, ipv6_service_range, opt_skip_docker, report_path, prometheus_namespace, node_nics, local_nics, external_containers, native_bgp, external_frr_image, host_bgp_mode), warn="True")
+            "KUBECONFIG={} ginkgo {} --timeout=3h {} {} -- --provider=local --kubeconfig={} --service-pod-port={} -ipv4-service-range={} -ipv6-service-range={} {} --report-path {} {} -node-nics {} -local-nics {} {} -bgp-mode={}  -with-vrf={} {} --host-bgp-mode={}".format(kubeconfig, ginkgo_params, ginkgo_focus, ginkgo_skip, kubeconfig, service_pod_port, ipv4_service_range, ipv6_service_range, opt_skip_docker, report_path, prometheus_namespace, node_nics, local_nics, external_containers, bgp_mode, with_vrf, external_frr_image, host_bgp_mode), warn="True")
 
     if export != None:
         run("kind export logs {}".format(export))
 
     if testrun.failed:
         raise Exit(message="E2E tests failed", code=testrun.return_code)
+
+def dont_exclude_from_lb(name):
+    nodes = run("kind get nodes --name {name}".format(name=name)).stdout.strip().split("\n")
+    for node in nodes:
+        run("{} label nodes {} node.kubernetes.io/exclude-from-external-load-balancers-".format(kubectl_path,node), hide=True)
+    
+    return nodes
 
 @task
 def bumplicense(ctx):
@@ -897,6 +933,8 @@ def generatemanifests(ctx):
     generate_manifest(ctx, bgp_type="native", output="config/manifests/metallb-native.yaml")
     generate_manifest(ctx, bgp_type="frr", with_prometheus=True, output="config/manifests/metallb-frr-prometheus.yaml")
     generate_manifest(ctx, bgp_type="native", with_prometheus=True, output="config/manifests/metallb-native-prometheus.yaml")
+    generate_manifest(ctx, bgp_type="frr-k8s", output="config/manifests/metallb-frr-k8s.yaml")
+    generate_manifest(ctx, bgp_type="frr-k8s", with_prometheus=True,output="config/manifests/metallb-frr-k8s-prometheus.yaml")
 
     _align_helm_crds(
         source='config/manifests/metallb-frr.yaml',
@@ -909,9 +947,9 @@ def _align_helm_crds(source, output):
 @task
 def generateapidocs(ctx):
     """Generates the docs for the CRDs"""
-    run("go install github.com/ahmetb/gen-crd-api-reference-docs@3f29e6853552dcf08a8e846b1225f275ed0f3e3b")
-    run('gen-crd-api-reference-docs -config website/generatecrddoc/crdgen.json -template-dir website/generatecrddoc/template -api-dir "go.universe.tf/metallb/api" -out-file /tmp/generated_apidoc.html')
-    run("cat website/generatecrddoc/prefix.html /tmp/generated_apidoc.html > website/content/apis/_index.md")
+    run("go install github.com/elastic/crd-ref-docs@v0.0.10")
+    run('crd-ref-docs --source-path=./api --config=website/generatecrddoc/crdgen.yaml --templates-dir=website/generatecrddoc/template --renderer markdown --output-path=/tmp/generated_apidoc.md')
+    run("cat website/generatecrddoc/prefix.html /tmp/generated_apidoc.md > website/content/apis/_index.md")
 
 @task(help={
     "action": "The action to take to fix the uncommitted changes",

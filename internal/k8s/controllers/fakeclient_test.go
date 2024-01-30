@@ -25,11 +25,13 @@ import (
 	"go.universe.tf/metallb/internal/k8s/epslices"
 	corev1 "k8s.io/api/core/v1"
 	discovery "k8s.io/api/discovery/v1"
+	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
 func newFakeClient(initObjects []client.Object) (client.WithWatch, error) {
+	scheme := runtime.NewScheme()
 	if err := v1beta1.AddToScheme(scheme); err != nil {
 		return nil, fmt.Errorf("v1beta1: add to scheme failed: %v", err)
 	}
@@ -83,10 +85,6 @@ func objectsFromResources(r config.ClusterResources) []client.Object {
 
 	for _, l2Adv := range r.L2Advs {
 		objects = append(objects, l2Adv.DeepCopy())
-	}
-
-	for _, legacyPool := range r.LegacyAddressPools {
-		objects = append(objects, legacyPool.DeepCopy())
 	}
 
 	for _, community := range r.Communities {

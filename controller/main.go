@@ -19,18 +19,20 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+	"strings"
 
 	"go.universe.tf/metallb/internal/allocator"
 	"go.universe.tf/metallb/internal/config"
 	"go.universe.tf/metallb/internal/k8s"
 	"go.universe.tf/metallb/internal/k8s/controllers"
-	"go.universe.tf/metallb/internal/k8s/epslices"
 	"go.universe.tf/metallb/internal/logging"
 	"go.universe.tf/metallb/internal/version"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
+	cliflag "k8s.io/component-base/cli/flag"
 )
 
 // Service offers methods to mutate a Kubernetes service object.
@@ -46,7 +48,7 @@ type controller struct {
 	ips    *allocator.Allocator
 }
 
-func (c *controller) SetBalancer(l log.Logger, name string, svcRo *v1.Service, _ epslices.EpsOrSlices) controllers.SyncState {
+func (c *controller) SetBalancer(l log.Logger, name string, svcRo *v1.Service, _ []discovery.EndpointSlice) controllers.SyncState {
 	level.Debug(l).Log("event", "startUpdate", "msg", "start of service update")
 	defer level.Debug(l).Log("event", "endUpdate", "msg", "end of service update")
 
@@ -141,7 +143,6 @@ func main() {
 		mlSecret            = flag.String("ml-secret-name", os.Getenv("METALLB_ML_SECRET_NAME"), "name of the memberlist secret to create")
 		deployName          = flag.String("deployment", os.Getenv("METALLB_DEPLOYMENT"), "name of the MetalLB controller Deployment")
 		logLevel            = flag.String("log-level", "info", fmt.Sprintf("log level. must be one of: [%s]", logging.Levels.String()))
-		disableEpSlices     = flag.Bool("disable-epslices", false, "Disable the usage of EndpointSlices and default to Endpoints instead of relying on the autodiscovery mechanism")
 		enablePprof         = flag.Bool("enable-pprof", false, "Enable pprof profiling")
 		disableCertRotation = flag.Bool("disable-cert-rotation", false, "disable automatic generation and rotation of webhook TLS certificates/keys")
 		certDir             = flag.String("cert-dir", "/tmp/k8s-webhook-server/serving-certs", "The directory where certs are stored")
@@ -150,6 +151,10 @@ func main() {
 		webhookMode         = flag.String("webhook-mode", "enabled", "webhook mode: can be enabled, disabled or only webhook if we want the controller to act as webhook endpoint only")
 		webhookSecretName   = flag.String("webhook-secret", "webhook-server-cert", "webhook secret: the name of webhook secret, default is webhook-server-cert")
 		webhookHTTP2        = flag.Bool("webhook-http2", false, "enables http2 for the webhook endpoint")
+		tlsMinVersion       = flag.String("tls-min-version", "", "Minimum TLS version supported for the webhook server, Possible values: "+strings.Join(cliflag.TLSPossibleVersions(), ", "))
+		tlsCipherSuites     = flag.String("tls-cipher-suites", "TLS_AES_128_GCM_SHA256,TLS_AES_256_GCM_SHA384,TLS_CHACHA20_POLY1305_SHA256,TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,"+
+			"TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,"+
+			"TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,TLS_RSA_WITH_AES_128_GCM_SHA256,TLS_RSA_WITH_AES_256_GCM_SHA384", "Comma-separated list of cipher suites for the webhook server")
 	)
 	flag.Parse()
 
@@ -160,6 +165,23 @@ func main() {
 	}
 
 	level.Info(logger).Log("version", version.Version(), "commit", version.CommitHash(), "branch", version.Branch(), "goversion", version.GoString(), "msg", "MetalLB controller starting "+version.String())
+
+	var webhookTLSMinVersion uint16
+	var webhookTLSCipherSuites []uint16
+	if *tlsMinVersion != "" {
+		webhookTLSMinVersion, err = cliflag.TLSVersion(*tlsMinVersion)
+		if err != nil {
+			level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to parse tlsMinVersion", "value", *tlsMinVersion)
+			os.Exit(1)
+		}
+	}
+	if *tlsCipherSuites != "" {
+		webhookTLSCipherSuites, err = cliflag.TLSCipherSuites(strings.Split(*tlsCipherSuites, ","))
+		if err != nil {
+			level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to parse tlsCipherSuites", "value", *tlsCipherSuites)
+			os.Exit(1)
+		}
+	}
 
 	if *namespace == "" {
 		bs, err := os.ReadFile("/var/run/secrets/kubernetes.io/serviceaccount/namespace")
@@ -182,11 +204,10 @@ func main() {
 	validation := config.ValidationFor(bgpType)
 
 	cfg := &k8s.Config{
-		ProcessName:     "metallb-controller",
-		MetricsPort:     *port,
-		EnablePprof:     *enablePprof,
-		Logger:          logger,
-		DisableEpSlices: *disableEpSlices,
+		ProcessName: "metallb-controller",
+		MetricsPort: *port,
+		EnablePprof: *enablePprof,
+		Logger:      logger,
 
 		Namespace: *namespace,
 		Listener: k8s.Listener{
@@ -196,6 +217,8 @@ func main() {
 		ValidateConfig:      validation,
 		EnableWebhook:       true,
 		WebhookWithHTTP2:    *webhookHTTP2,
+		WebHookMinVersion:   webhookTLSMinVersion,
+		WebHookCipherSuites: webhookTLSCipherSuites,
 		DisableCertRotation: *disableCertRotation,
 		WebhookSecretName:   *webhookSecretName,
 		CertDir:             *certDir,

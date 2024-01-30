@@ -23,12 +23,13 @@ import (
 
 	"go.universe.tf/metallb/internal/bgp"
 	bgpfrr "go.universe.tf/metallb/internal/bgp/frr"
+	bgpfrrk8s "go.universe.tf/metallb/internal/bgp/frrk8s"
 	bgpnative "go.universe.tf/metallb/internal/bgp/native"
 	"go.universe.tf/metallb/internal/config"
 	"go.universe.tf/metallb/internal/k8s/epslices"
 	k8snodes "go.universe.tf/metallb/internal/k8s/nodes"
-	"go.universe.tf/metallb/internal/logging"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/labels"
 
 	"github.com/go-kit/log"
@@ -41,6 +42,7 @@ type bgpImplementation string
 const (
 	bgpNative bgpImplementation = "native"
 	bgpFrr    bgpImplementation = "frr"
+	bgpFrrK8s bgpImplementation = "frr-k8s"
 )
 
 type peer struct {
@@ -107,45 +109,29 @@ newPeers:
 	return c.syncPeers(l)
 }
 
+func (c *bgpController) SetEventCallback(callback func(interface{})) {
+	c.sessionManager.SetEventCallback(callback)
+}
+
 // hasHealthyEndpoint return true if this node has at least one healthy endpoint.
 // It only checks nodes matching the given filterNode function.
-func hasHealthyEndpoint(eps epslices.EpsOrSlices, filterNode func(*string) bool) bool {
+func hasHealthyEndpoint(eps []discovery.EndpointSlice, filterNode func(*string) bool) bool {
 	ready := map[string]bool{}
-	switch eps.Type {
-	case epslices.Eps:
-		for _, subset := range eps.EpVal.Subsets {
-			for _, ep := range subset.Addresses {
-				if filterNode(ep.NodeName) {
-					continue
-				}
-				if _, ok := ready[ep.IP]; !ok {
+	for _, slice := range eps {
+		for _, ep := range slice.Endpoints {
+			node := ep.NodeName
+			if filterNode(node) {
+				continue
+			}
+			for _, addr := range ep.Addresses {
+				if _, ok := ready[addr]; !ok && epslices.IsConditionServing(ep.Conditions) {
 					// Only set true if nothing else has expressed an
 					// opinion. This means that false will take precedence
 					// if there's any unready ports for a given endpoint.
-					ready[ep.IP] = true
+					ready[addr] = true
 				}
-			}
-			for _, ep := range subset.NotReadyAddresses {
-				ready[ep.IP] = false
-			}
-		}
-	case epslices.Slices:
-		for _, slice := range eps.SlicesVal {
-			for _, ep := range slice.Endpoints {
-				node := ep.NodeName
-				if filterNode(node) {
-					continue
-				}
-				for _, addr := range ep.Addresses {
-					if _, ok := ready[addr]; !ok && epslices.IsConditionServing(ep.Conditions) {
-						// Only set true if nothing else has expressed an
-						// opinion. This means that false will take precedence
-						// if there's any unready ports for a given endpoint.
-						ready[addr] = true
-					}
-					if !epslices.IsConditionServing(ep.Conditions) {
-						ready[addr] = false
-					}
+				if !epslices.IsConditionServing(ep.Conditions) {
+					ready[addr] = false
 				}
 			}
 		}
@@ -160,7 +146,7 @@ func hasHealthyEndpoint(eps epslices.EpsOrSlices, filterNode func(*string) bool)
 	return false
 }
 
-func (c *bgpController) ShouldAnnounce(l log.Logger, name string, _ []net.IP, pool *config.Pool, svc *v1.Service, eps epslices.EpsOrSlices, nodes map[string]*v1.Node) string {
+func (c *bgpController) ShouldAnnounce(l log.Logger, name string, _ []net.IP, pool *config.Pool, svc *v1.Service, epSlices []discovery.EndpointSlice, nodes map[string]*v1.Node) string {
 	if !poolMatchesNodeBGP(pool, c.myNode) {
 		level.Debug(l).Log("event", "skipping should announce bgp", "service", name, "reason", "pool not matching my node")
 		return "notOwner"
@@ -170,6 +156,12 @@ func (c *bgpController) ShouldAnnounce(l log.Logger, name string, _ []net.IP, po
 		level.Debug(l).Log("event", "skipping should announce bgp", "service", name, "reason", "speaker's node has NodeNetworkUnavailable condition")
 		return "nodeNetworkUnavailable"
 	}
+
+	if k8snodes.IsNodeExcludedFromBalancers(nodes[c.myNode]) {
+		level.Debug(l).Log("event", "skipping should announce bgp", "service", name, "reason", "speaker's node has labeled 'node.kubernetes.io/exclude-from-external-load-balancers'")
+		return "nodeLabeledExcludeBalancers"
+	}
+
 	// Should we advertise?
 	// Yes, if externalTrafficPolicy is
 	//  Cluster && any healthy endpoint exists
@@ -182,9 +174,9 @@ func (c *bgpController) ShouldAnnounce(l log.Logger, name string, _ []net.IP, po
 		return false
 	}
 
-	if svc.Spec.ExternalTrafficPolicy == v1.ServiceExternalTrafficPolicyTypeLocal && !hasHealthyEndpoint(eps, filterNode) {
+	if svc.Spec.ExternalTrafficPolicy == v1.ServiceExternalTrafficPolicyTypeLocal && !hasHealthyEndpoint(epSlices, filterNode) {
 		return "noLocalEndpoints"
-	} else if !hasHealthyEndpoint(eps, func(toFilter *string) bool { return false }) {
+	} else if !hasHealthyEndpoint(epSlices, func(toFilter *string) bool { return false }) {
 		return "noEndpoints"
 	}
 	return ""
@@ -237,6 +229,7 @@ func (c *bgpController) syncPeers(l log.Logger) error {
 					HoldTime:      p.cfg.HoldTime,
 					KeepAliveTime: p.cfg.KeepaliveTime,
 					Password:      p.cfg.Password,
+					PasswordRef:   p.cfg.PasswordRef,
 					CurrentNode:   c.myNode,
 					BFDProfile:    p.cfg.BFDProfile,
 					EBGPMultiHop:  p.cfg.EBGPMultiHop,
@@ -268,6 +261,10 @@ func (c *bgpController) syncPeers(l log.Logger) error {
 }
 
 func (c *bgpController) syncBFDProfiles(profiles map[string]*config.BFDProfile) error {
+	if len(profiles) == 0 {
+		return nil
+	}
+
 	return c.sessionManager.SyncBFDProfiles(profiles)
 }
 
@@ -325,11 +322,25 @@ func (c *bgpController) updateAds() error {
 		if peer.session == nil {
 			continue
 		}
-		if err := peer.session.Set(allAds...); err != nil {
+		ads := adsForPeer(peer.cfg.Name, allAds)
+		if err := peer.session.Set(ads...); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func adsForPeer(peerName string, ads []*bgp.Advertisement) []*bgp.Advertisement {
+	res := []*bgp.Advertisement{}
+	for _, a := range ads {
+		if a.MatchesPeer(peerName) {
+			res = append(res, a)
+		}
+	}
+	if len(res) == 0 {
+		return nil
+	}
+	return res
 }
 
 func (c *bgpController) DeleteBalancer(l log.Logger, name, reason string) error {
@@ -359,14 +370,16 @@ func (c *bgpController) SetNode(l log.Logger, node *v1.Node) error {
 }
 
 // Create a new 'bgp.SessionManager' of type 'bgpType'.
-var newBGP = func(bgpType bgpImplementation, l log.Logger, logLevel logging.Level) bgp.SessionManager {
-	switch bgpType {
+var newBGP = func(cfg controllerConfig) bgp.SessionManager {
+	switch cfg.bgpType {
 	case bgpNative:
-		return bgpnative.NewSessionManager(l)
+		return bgpnative.NewSessionManager(cfg.Logger)
 	case bgpFrr:
-		return bgpfrr.NewSessionManager(l, logLevel)
+		return bgpfrr.NewSessionManager(cfg.Logger, cfg.LogLevel)
+	case bgpFrrK8s:
+		return bgpfrrk8s.NewSessionManager(cfg.Logger, cfg.LogLevel, cfg.MyNode, cfg.Namespace)
 	default:
-		panic(fmt.Sprintf("unsupported BGP implementation type: %s", bgpType))
+		panic(fmt.Sprintf("unsupported BGP implementation type: %s", cfg.bgpType))
 	}
 }
 

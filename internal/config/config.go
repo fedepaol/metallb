@@ -36,17 +36,16 @@ import (
 )
 
 type ClusterResources struct {
-	Pools              []metallbv1beta1.IPAddressPool    `json:"ipaddresspools"`
-	Peers              []metallbv1beta2.BGPPeer          `json:"bgppeers"`
-	BFDProfiles        []metallbv1beta1.BFDProfile       `json:"bfdprofiles"`
-	BGPAdvs            []metallbv1beta1.BGPAdvertisement `json:"bgpadvertisements"`
-	L2Advs             []metallbv1beta1.L2Advertisement  `json:"l2advertisements"`
-	LegacyAddressPools []metallbv1beta1.AddressPool      `json:"legacyaddresspools"`
-	Communities        []metallbv1beta1.Community        `json:"communities"`
-	PasswordSecrets    map[string]corev1.Secret          `json:"passwordsecrets"`
-	Nodes              []corev1.Node                     `json:"nodes"`
-	Namespaces         []corev1.Namespace                `json:"namespaces"`
-	BGPExtras          corev1.ConfigMap                  `json:"bgpextras"`
+	Pools           []metallbv1beta1.IPAddressPool    `json:"ipaddresspools"`
+	Peers           []metallbv1beta2.BGPPeer          `json:"bgppeers"`
+	BFDProfiles     []metallbv1beta1.BFDProfile       `json:"bfdprofiles"`
+	BGPAdvs         []metallbv1beta1.BGPAdvertisement `json:"bgpadvertisements"`
+	L2Advs          []metallbv1beta1.L2Advertisement  `json:"l2advertisements"`
+	Communities     []metallbv1beta1.Community        `json:"communities"`
+	PasswordSecrets map[string]corev1.Secret          `json:"passwordsecrets"`
+	Nodes           []corev1.Node                     `json:"nodes"`
+	Namespaces      []corev1.Namespace                `json:"namespaces"`
+	BGPExtras       corev1.ConfigMap                  `json:"bgpextras"`
 }
 
 // Config is a parsed MetalLB configuration.
@@ -111,6 +110,8 @@ type Peer struct {
 	NodeSelectors []labels.Selector
 	// Authentication password for routers enforcing TCP MD5 authenticated sessions
 	Password string
+	// Optional reference to the secret that holds the password.
+	PasswordRef corev1.SecretReference
 	// The optional BFD profile to be used for this BGP session
 	BFDProfile string
 	// Optional ebgp peer is multi-hops away.
@@ -331,33 +332,6 @@ func poolsFor(resources ClusterResources) (*Pools, error) {
 		return nil, err
 	}
 
-	for _, p := range resources.LegacyAddressPools {
-		allNodes, err := selectedNodes(resources.Nodes, nil)
-		if err != nil {
-			return nil, err
-		}
-		pool, err := addressPoolFromLegacyCR(p, communities, allNodes)
-		if err != nil {
-			return nil, errors.Wrapf(err, "parsing address pool %s", p.Name)
-		}
-
-		// Check that the pool isn't already defined
-		if pools[p.Name] != nil {
-			return nil, fmt.Errorf("duplicate definition of pool %q", p.Name)
-		}
-
-		// Check that all specified CIDR ranges are non-overlapping.
-		for _, cidr := range pool.CIDR {
-			for _, m := range allCIDRs {
-				if cidrsOverlap(cidr, m) {
-					return nil, fmt.Errorf("CIDR %q in pool %q overlaps with already defined CIDR %q", cidr, p.Name, m)
-				}
-			}
-			allCIDRs = append(allCIDRs, cidr)
-		}
-
-		pools[p.Name] = pool
-	}
 	return &Pools{ByName: pools, ByNamespace: poolsByNamespace(pools),
 		ByServiceSelector: poolsByServiceSelector(pools)}, nil
 }
@@ -451,9 +425,20 @@ func peerFromCR(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secr
 		nodeSels = []labels.Selector{labels.Everything()}
 	}
 
-	password, err := passwordForPeer(p, passwordSecrets)
-	if err != nil {
-		return nil, err
+	if p.Spec.Password != "" && p.Spec.PasswordSecret.Name != "" {
+		return nil, fmt.Errorf("can not have both password and secret ref set in peer config %q/%q", p.Namespace, p.Name)
+	}
+
+	password := p.Spec.Password
+	if p.Spec.PasswordSecret.Name != "" {
+		password, err = passwordFromSecretForPeer(p, passwordSecrets)
+		if err != nil {
+			return nil, errors.Wrapf(err, "Failed to parse peer %s password secret", p.Name)
+		}
+		nodeSels = append(nodeSels, labelSelector)
+	}
+	if len(nodeSels) == 0 {
+		nodeSels = []labels.Selector{labels.Everything()}
 	}
 
 	return &Peer{
@@ -468,36 +453,30 @@ func peerFromCR(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secr
 		RouterID:      routerID,
 		NodeSelectors: nodeSels,
 		Password:      password,
+		PasswordRef:   p.Spec.PasswordSecret,
 		BFDProfile:    p.Spec.BFDProfile,
 		EBGPMultiHop:  p.Spec.EBGPMultiHop,
 		VRF:           p.Spec.VRFName,
 	}, nil
 }
 
-func passwordForPeer(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secret) (string, error) {
-	if p.Spec.Password != "" && p.Spec.PasswordSecret.Name != "" {
-		return "", fmt.Errorf("can not have both password and secret ref set in peer config %q/%q", p.Namespace,
-			p.Name)
+func passwordFromSecretForPeer(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secret) (string, error) {
+	secret, ok := passwordSecrets[p.Spec.PasswordSecret.Name]
+	if !ok {
+		return "", TransientError{Message: fmt.Sprintf("secret ref not found for peer config %q/%q", p.Namespace, p.Name)}
 	}
-	var password string
-	if p.Spec.Password != "" {
-		password = p.Spec.Password
-	} else if p.Spec.PasswordSecret.Name != "" {
-		secret, ok := passwordSecrets[p.Spec.PasswordSecret.Name]
-		if !ok {
-			return "", TransientError{Message: fmt.Sprintf("secret ref not found for peer config %q/%q", p.Namespace, p.Name)}
-		}
-		if secret.Type != corev1.SecretTypeBasicAuth {
-			return "", fmt.Errorf("secret type mismatch on %q/%q, type %q is expected ", secret.Namespace,
-				secret.Name, corev1.SecretTypeBasicAuth)
-		}
-		srcPass, ok := secret.Data["password"]
-		if !ok {
-			return "", fmt.Errorf("password not specified in the secret %q/%q", secret.Namespace, secret.Name)
-		}
-		password = string(srcPass)
+
+	if secret.Type != corev1.SecretTypeBasicAuth {
+		return "", fmt.Errorf("secret type mismatch on %q/%q, type %q is expected ", secret.Namespace,
+			secret.Name, corev1.SecretTypeBasicAuth)
 	}
-	return password, nil
+
+	srcPass, ok := secret.Data["password"]
+	if !ok {
+		return "", fmt.Errorf("password not specified in the secret %q/%q", secret.Namespace, secret.Name)
+	}
+
+	return string(srcPass), nil
 }
 
 func addressPoolFromCR(p metallbv1beta1.IPAddressPool, namespaces []corev1.Namespace) (*Pool, error) {
@@ -606,57 +585,6 @@ func poolsByServiceSelector(pools map[string]*Pool) []string {
 	}
 	sort.Strings(poolsByServiceSelector)
 	return poolsByServiceSelector
-}
-
-func addressPoolFromLegacyCR(p metallbv1beta1.AddressPool, bgpCommunities map[string]community.BGPCommunity, allNodes map[string]bool) (*Pool, error) {
-	if p.Name == "" {
-		return nil, errors.New("missing pool name")
-	}
-
-	ret := &Pool{
-		Name:       p.Name,
-		AutoAssign: true,
-	}
-
-	if p.Spec.AutoAssign != nil {
-		ret.AutoAssign = *p.Spec.AutoAssign
-	}
-
-	if len(p.Spec.Addresses) == 0 {
-		return nil, errors.New("pool has no prefixes defined")
-	}
-
-	cidrsPerAddresses := map[string][]*net.IPNet{}
-	for _, cidr := range p.Spec.Addresses {
-		nets, err := ParseCIDR(cidr)
-		if err != nil {
-			return nil, fmt.Errorf("invalid CIDR %q in pool %q: %s", cidr, p.Name, err)
-		}
-		ret.CIDR = append(ret.CIDR, nets...)
-		cidrsPerAddresses[cidr] = nets
-	}
-	switch Proto(p.Spec.Protocol) {
-	case Layer2:
-		if len(p.Spec.BGPAdvertisements) > 0 {
-			return nil, errors.New("cannot have bgp-advertisements configuration element in a layer2 address pool")
-		}
-		ret.L2Advertisements = []*L2Advertisement{{Nodes: allNodes, AllInterfaces: true}}
-	case BGP:
-		ads, err := bgpAdvertisementsFromLegacyCR(p.Spec.BGPAdvertisements, cidrsPerAddresses, bgpCommunities, allNodes)
-		if err != nil {
-			return nil, errors.Wrapf(err, "parsing BGP advertisements")
-		}
-		ret.BGPAdvertisements = ads
-		if len(ads) == 0 { // Fill an empty bgpadvertisement to declare we want to advertise this pool
-			ret.BGPAdvertisements = []*BGPAdvertisement{{}}
-		}
-	case "":
-		return nil, errors.New("address pool is missing the protocol field")
-	default:
-		return nil, fmt.Errorf("unknown protocol %q", p.Spec.Protocol)
-	}
-
-	return ret, nil
 }
 
 func bfdProfileFromCR(p metallbv1beta1.BFDProfile) (*BFDProfile, error) {
@@ -853,80 +781,6 @@ func bgpAdvertisementFromCR(crdAd metallbv1beta1.BGPAdvertisement, communities m
 	}
 	ad.Nodes = selected
 	return ad, nil
-}
-
-func bgpAdvertisementsFromLegacyCR(ads []metallbv1beta1.LegacyBgpAdvertisement, cidrsPerAddresses map[string][]*net.IPNet, communities map[string]community.BGPCommunity, allNodes map[string]bool) ([]*BGPAdvertisement, error) {
-	if len(ads) == 0 {
-		return []*BGPAdvertisement{
-			{
-				AggregationLength:   32,
-				AggregationLengthV6: 128,
-				LocalPref:           0,
-				Communities:         map[community.BGPCommunity]bool{},
-				Nodes:               allNodes,
-			},
-		}, nil
-	}
-
-	var ret []*BGPAdvertisement
-	for _, crdAd := range ads {
-		err := validateDuplicate(crdAd.Communities, "community")
-		if err != nil {
-			return nil, err
-		}
-
-		ad := &BGPAdvertisement{
-			AggregationLength:   32,
-			AggregationLengthV6: 128,
-			LocalPref:           0,
-			Communities:         map[community.BGPCommunity]bool{},
-			Nodes:               allNodes,
-		}
-
-		if crdAd.AggregationLength != nil {
-			ad.AggregationLength = int(*crdAd.AggregationLength)
-		}
-		if ad.AggregationLength > 32 {
-			return nil, fmt.Errorf("invalid aggregation length %q for IPv4", ad.AggregationLength)
-		}
-		if crdAd.AggregationLengthV6 != nil {
-			ad.AggregationLengthV6 = int(*crdAd.AggregationLengthV6)
-			if ad.AggregationLengthV6 > 128 {
-				return nil, fmt.Errorf("invalid aggregation length %q for IPv6", ad.AggregationLengthV6)
-			}
-		}
-
-		for addr, cidrs := range cidrsPerAddresses {
-			if len(cidrs) == 0 {
-				continue
-			}
-			maxLength := ad.AggregationLength
-			if cidrs[0].IP.To4() == nil {
-				maxLength = ad.AggregationLengthV6
-			}
-
-			// in case of range format, we may have a set of cidrs associated to a given address.
-			// We reject if none of the cidrs are compatible with the aggregation length.
-			lowest := lowestMask(cidrs)
-			if maxLength < lowest {
-				return nil, fmt.Errorf("invalid aggregation length %d: prefix %d in "+
-					"this pool is more specific than the aggregation length for addresses %s", ad.AggregationLength, lowest, addr)
-			}
-		}
-
-		ad.LocalPref = crdAd.LocalPref
-
-		for _, c := range crdAd.Communities {
-			v, err := getCommunityValue(c, communities)
-			if err != nil {
-				return nil, errors.Wrapf(err, "invalid community %q in BGP advertisement", c)
-			}
-			ad.Communities[v] = true
-		}
-		ret = append(ret, ad)
-	}
-
-	return ret, nil
 }
 
 // getCommunityValue returns the BGPCommunity from the communities map if it exists there. Otherwise, it creates a

@@ -32,13 +32,14 @@ import (
 	"go.universe.tf/metallb/internal/config"
 	"go.universe.tf/metallb/internal/k8s"
 	"go.universe.tf/metallb/internal/k8s/controllers"
-	"go.universe.tf/metallb/internal/k8s/epslices"
 	k8snodes "go.universe.tf/metallb/internal/k8s/nodes"
+
 	"go.universe.tf/metallb/internal/layer2"
 	"go.universe.tf/metallb/internal/logging"
 	"go.universe.tf/metallb/internal/speakerlist"
 	"go.universe.tf/metallb/internal/version"
 	v1 "k8s.io/api/core/v1"
+	discovery "k8s.io/api/discovery/v1"
 	"sigs.k8s.io/yaml"
 )
 
@@ -74,11 +75,11 @@ func main() {
 		mlBindAddr        = flag.String("ml-bindaddr", os.Getenv("METALLB_ML_BIND_ADDR"), "Bind addr for MemberList (fast dead node detection)")
 		mlBindPort        = flag.String("ml-bindport", os.Getenv("METALLB_ML_BIND_PORT"), "Bind port for MemberList (fast dead node detection)")
 		mlLabels          = flag.String("ml-labels", os.Getenv("METALLB_ML_LABELS"), "Labels to match the speakers (for MemberList / fast dead node detection)")
-		mlSecretKeyPath   = flag.String("ml-secret-key-path", os.Getenv("METALLB_ML_SECRET_KEY_PATH"), "Path to where the MembeList's secret key is mounted")
+		mlSecretKeyPath   = flag.String("ml-secret-key-path", os.Getenv("METALLB_ML_SECRET_KEY_PATH"), "Path to where the MemberList's secret key is mounted")
+		mlWANConfig       = flag.Bool("ml-wan-config", false, "WAN network type for MemberList default config, bool")
 		myNode            = flag.String("node-name", os.Getenv("METALLB_NODE_NAME"), "name of this Kubernetes node (spec.nodeName)")
 		port              = flag.Int("port", 7472, "HTTP listening port")
 		logLevel          = flag.String("log-level", "info", fmt.Sprintf("log level. must be one of: [%s]", logging.Levels.String()))
-		disableEpSlices   = flag.Bool("disable-epslices", false, "Disable the usage of EndpointSlices and default to Endpoints instead of relying on the autodiscovery mechanism")
 		enablePprof       = flag.Bool("enable-pprof", false, "Enable pprof profiling")
 		loadBalancerClass = flag.String("lb-class", "", "load balancer class. When enabled, metallb will handle only services whose spec.loadBalancerClass matches the given lb class")
 	)
@@ -135,7 +136,7 @@ func main() {
 		mlSecret = string(mlSecretBytes)
 	}
 
-	sList, err := speakerlist.New(logger, *myNode, *mlBindAddr, *mlBindPort, mlSecret, *namespace, *mlLabels, stopCh)
+	sList, err := speakerlist.New(logger, *myNode, *mlBindAddr, *mlBindPort, mlSecret, *namespace, *mlLabels, *mlWANConfig, stopCh)
 	if err != nil {
 		os.Exit(1)
 	}
@@ -150,6 +151,7 @@ func main() {
 	// Setup all clients and speakers, config decides what is being done runtime.
 	ctrl, err := newController(controllerConfig{
 		MyNode:                 *myNode,
+		Namespace:              *namespace,
 		Logger:                 logger,
 		LogLevel:               logging.Level(*logLevel),
 		SList:                  sList,
@@ -168,11 +170,14 @@ func main() {
 		validateConfig = config.DiscardNativeOnly
 	}
 
+	listenFRRK8s := false
+	if bgpType == string(bgpFrrK8s) {
+		listenFRRK8s = true
+	}
 	client, err := k8s.New(&k8s.Config{
-		ProcessName:     "metallb-speaker",
-		NodeName:        *myNode,
-		Logger:          logger,
-		DisableEpSlices: *disableEpSlices,
+		ProcessName: "metallb-speaker",
+		NodeName:    *myNode,
+		Logger:      logger,
 
 		MetricsHost:   *host,
 		MetricsPort:   *port,
@@ -187,12 +192,14 @@ func main() {
 		},
 		ValidateConfig:    validateConfig,
 		LoadBalancerClass: *loadBalancerClass,
+		WithFRRK8s:        listenFRRK8s,
 	})
 	if err != nil {
 		level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to create k8s client")
 		os.Exit(1)
 	}
 	ctrl.client = client
+	ctrl.protocolHandlers[config.BGP].SetEventCallback(client.BGPEventCallback)
 
 	sList.Start(client)
 	defer sList.Stop()
@@ -219,10 +226,11 @@ type controller struct {
 }
 
 type controllerConfig struct {
-	MyNode   string
-	Logger   log.Logger
-	LogLevel logging.Level
-	SList    SpeakerList
+	MyNode    string
+	Namespace string
+	Logger    log.Logger
+	LogLevel  logging.Level
+	SList     SpeakerList
 
 	bgpType bgpImplementation
 
@@ -241,7 +249,7 @@ func newController(cfg controllerConfig) (*controller, error) {
 			myNode:         cfg.MyNode,
 			svcAds:         make(map[string][]*bgp.Advertisement),
 			bgpType:        cfg.bgpType,
-			sessionManager: newBGP(cfg.bgpType, cfg.Logger, cfg.LogLevel),
+			sessionManager: newBGP(cfg),
 		},
 	}
 	protocols := []config.Proto{config.BGP}
@@ -275,7 +283,7 @@ func newController(cfg controllerConfig) (*controller, error) {
 	return ret, nil
 }
 
-func (c *controller) SetBalancer(l log.Logger, name string, svc *v1.Service, eps epslices.EpsOrSlices) controllers.SyncState {
+func (c *controller) SetBalancer(l log.Logger, name string, svc *v1.Service, epSlices []discovery.EndpointSlice) controllers.SyncState {
 	if svc == nil {
 		return c.deleteBalancer(l, name, "serviceDeleted")
 	}
@@ -328,7 +336,7 @@ func (c *controller) SetBalancer(l log.Logger, name string, svc *v1.Service, eps
 	}
 
 	for _, protocol := range c.protocols {
-		if st := c.handleService(l, name, lbIPs, svc, pool, eps, protocol); st == controllers.SyncStateError {
+		if st := c.handleService(l, name, lbIPs, svc, pool, epSlices, protocol); st == controllers.SyncStateError {
 			return st
 		}
 	}
@@ -340,7 +348,7 @@ func (c *controller) handleService(l log.Logger,
 	name string,
 	lbIPs []net.IP,
 	svc *v1.Service, pool *config.Pool,
-	eps epslices.EpsOrSlices,
+	eps []discovery.EndpointSlice,
 	protocol config.Proto) controllers.SyncState {
 	l = log.With(l, "protocol", protocol)
 	handler := c.protocolHandlers[protocol]
@@ -500,7 +508,8 @@ func (c *controller) SetConfig(l log.Logger, cfg *config.Config) controllers.Syn
 	}
 
 	for proto, handler := range c.protocolHandlers {
-		if err := handler.SetConfig(l, cfg); err != nil {
+		err := handler.SetConfig(l, cfg)
+		if err != nil {
 			level.Error(l).Log("op", "setConfig", "protocol", proto, "error", err, "msg", "applying new configuration to protocol handler failed")
 			return controllers.SyncStateErrorNoRetry
 		}
@@ -512,7 +521,8 @@ func (c *controller) SetConfig(l log.Logger, cfg *config.Config) controllers.Syn
 }
 
 func (c *controller) SetNode(l log.Logger, node *v1.Node) controllers.SyncState {
-	conditionChanged := isNetworkConditionChanged(c.myNode, c.nodes, node)
+	conditionChanged := isNetworkConditionChanged(node.Name, c.nodes, node)
+	labelNodeExcludeBalancersChanged := isLabelNodeExcludeBalancersChanged(node.Name, c.nodes, node)
 	c.nodes[node.Name] = node
 
 	for proto, handler := range c.protocolHandlers {
@@ -522,7 +532,7 @@ func (c *controller) SetNode(l log.Logger, node *v1.Node) controllers.SyncState 
 		}
 	}
 
-	if conditionChanged {
+	if conditionChanged || labelNodeExcludeBalancersChanged {
 		return controllers.SyncStateReprocessAll
 	}
 
@@ -533,13 +543,18 @@ func isNetworkConditionChanged(nodeName string, oldNodes map[string]*v1.Node, ne
 	return k8snodes.IsNetworkUnavailable(oldNodes[nodeName]) != k8snodes.IsNetworkUnavailable(newNode)
 }
 
+func isLabelNodeExcludeBalancersChanged(nodeName string, oldNodes map[string]*v1.Node, newNode *v1.Node) bool {
+	return k8snodes.IsNodeExcludedFromBalancers(oldNodes[nodeName]) != k8snodes.IsNodeExcludedFromBalancers(newNode)
+}
+
 // A Protocol can advertise an IP address.
 type Protocol interface {
 	SetConfig(log.Logger, *config.Config) error
-	ShouldAnnounce(log.Logger, string, []net.IP, *config.Pool, *v1.Service, epslices.EpsOrSlices, map[string]*v1.Node) string
+	ShouldAnnounce(log.Logger, string, []net.IP, *config.Pool, *v1.Service, []discovery.EndpointSlice, map[string]*v1.Node) string
 	SetBalancer(log.Logger, string, []net.IP, *config.Pool, service, *v1.Service) error
 	DeleteBalancer(log.Logger, string, string) error
 	SetNode(log.Logger, *v1.Node) error
+	SetEventCallback(func(interface{}))
 }
 
 // Speakerlist represents a list of healthy speakers.

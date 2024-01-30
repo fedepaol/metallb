@@ -286,6 +286,62 @@ var _ = ginkgo.Describe("L2", func() {
 				return node.Name
 			}, time.Minute, time.Second).Should(gomega.Equal(nodeToSet))
 		})
+
+		ginkgo.It("It should be work when adding NodeExcludeBalancers label to a node", func() {
+			svc, _ := service.CreateWithBackend(cs, f.Namespace.Name, "external-local-lb", service.TrafficPolicyCluster)
+			defer func() {
+				err := cs.CoreV1().Services(svc.Namespace).Delete(context.TODO(), svc.Name, metav1.DeleteOptions{})
+				framework.ExpectNoError(err)
+			}()
+
+			allNodes, err := cs.CoreV1().Nodes().List(context.Background(), metav1.ListOptions{})
+			framework.ExpectNoError(err)
+
+			ginkgo.By("getting the advertising node")
+			var nodeToSet string
+
+			gomega.Eventually(func() error {
+				node, err := k8s.GetSvcNode(cs, svc.Namespace, svc.Name, allNodes)
+				if err != nil {
+					return err
+				}
+				nodeToSet = node.Name
+				return nil
+			}, time.Minute, time.Second).ShouldNot(gomega.HaveOccurred())
+
+			ginkgo.By("add the NodeExcludeBalancers label of the node")
+
+			// Adding a sleep for AddLabelToNode is to make sure that the lastTimeStep
+			// of the second nodeAssigned event is later than the first one, so that
+			// we can get the correct node name.
+			time.Sleep(time.Second)
+			k8s.AddLabelToNode(nodeToSet, corev1.LabelNodeExcludeBalancers, "", cs)
+			defer func() {
+				ginkgo.By("removing the NodeExcludeBalancers label of the node")
+				k8s.RemoveLabelFromNode(nodeToSet, corev1.LabelNodeExcludeBalancers, cs)
+			}()
+
+			ginkgo.By("validating the service is announced from a different node")
+			gomega.Eventually(func() string {
+				node, err := k8s.GetSvcNode(cs, svc.Namespace, svc.Name, allNodes)
+				if err != nil {
+					return err.Error()
+				}
+				return node.Name
+			}, time.Minute, time.Second).ShouldNot(gomega.Equal(nodeToSet))
+
+			ginkgo.By("removing the NodeExcludeBalancers label of the node")
+			k8s.RemoveLabelFromNode(nodeToSet, corev1.LabelNodeExcludeBalancers, cs)
+
+			ginkgo.By("validating the service is announced back again from the previous node")
+			gomega.Eventually(func() string {
+				node, err := k8s.GetSvcNode(cs, svc.Namespace, svc.Name, allNodes)
+				if err != nil {
+					return err.Error()
+				}
+				return node.Name
+			}, time.Minute, time.Second).Should(gomega.Equal(nodeToSet))
+		})
 	})
 
 	ginkgo.Context("validate different AddressPools for type=Loadbalancer", func() {
@@ -502,7 +558,7 @@ var _ = ginkgo.Describe("L2", func() {
 				L2Advs: []metallbv1beta1.L2Advertisement{emptyL2Advertisement},
 			}
 
-			poolCount, err := config.PoolCount(resources.Pools[0])
+			total, ipv4, ipv6, err := config.PoolCount(resources.Pools[0])
 			framework.ExpectNoError(err)
 
 			err = ConfigUpdater.Update(resources)
@@ -510,25 +566,42 @@ var _ = ginkgo.Describe("L2", func() {
 
 			ginkgo.By("checking the metrics when no service is added")
 			gomega.Eventually(func() error {
-				controllerMetrics, err := metrics.ForPod(controllerPod, controllerPod, metallb.Namespace)
+				controllerMetrics, err := metrics.ForPod(promPod, controllerPod, metallb.Namespace)
 				if err != nil {
 					return err
 				}
-				err = metrics.ValidateGaugeValue(0, "metallb_allocator_addresses_in_use_total", map[string]string{"pool": poolName}, controllerMetrics)
-				if err != nil {
-					return err
+				cases := []struct {
+					name   string
+					expect int64
+				}{
+					{
+						"addresses_in_use_total", 0,
+					},
+					{
+						"addresses_total", total,
+					},
+					{
+						"ipv4_addresses_in_use_total", 0,
+					},
+					{
+						"ipv4_addresses_total", ipv4,
+					},
+					{
+						"ipv6_addresses_in_use_total", 0,
+					},
+					{
+						"ipv6_addresses_total", ipv6,
+					},
 				}
-				err = metrics.ValidateGaugeValue(int(poolCount), "metallb_allocator_addresses_total", map[string]string{"pool": poolName}, controllerMetrics)
-				if err != nil {
-					return err
-				}
-				err = metrics.ValidateOnPrometheus(promPod, fmt.Sprintf(`metallb_allocator_addresses_in_use_total{pool="%s"} == 0`, poolName), metrics.There)
-				if err != nil {
-					return err
-				}
-				err = metrics.ValidateOnPrometheus(promPod, fmt.Sprintf(`metallb_allocator_addresses_total{pool="%s"} == %d`, poolName, int(poolCount)), metrics.There)
-				if err != nil {
-					return err
+				for _, c := range cases {
+					err = metrics.ValidateGaugeValue(int(c.expect), "metallb_allocator_"+c.name, map[string]string{"pool": poolName}, controllerMetrics)
+					if err != nil {
+						return err
+					}
+					err = metrics.ValidateOnPrometheus(promPod, fmt.Sprintf(`metallb_allocator_%s{pool="%s"} == %d`, c.name, poolName, c.expect), metrics.There)
+					if err != nil {
+						return err
+					}
 				}
 				return nil
 			}, 2*time.Minute, 5*time.Second).ShouldNot(gomega.HaveOccurred())
@@ -544,7 +617,7 @@ var _ = ginkgo.Describe("L2", func() {
 
 			ginkgo.By("checking the metrics when a service is added")
 			gomega.Eventually(func() error {
-				controllerMetrics, err := metrics.ForPod(controllerPod, controllerPod, metallb.Namespace)
+				controllerMetrics, err := metrics.ForPod(promPod, controllerPod, metallb.Namespace)
 				if err != nil {
 					return err
 				}
@@ -590,7 +663,7 @@ var _ = ginkgo.Describe("L2", func() {
 					return fmt.Errorf("could not find speaker pod on announcing node %s", advNode.Name)
 				}
 
-				speakerMetrics, err := metrics.ForPod(controllerPod, advSpeaker, metallb.Namespace)
+				speakerMetrics, err := metrics.ForPod(promPod, advSpeaker, metallb.Namespace)
 				if err != nil {
 					return err
 				}
@@ -644,7 +717,7 @@ var _ = ginkgo.Describe("L2", func() {
 			delete(speakerPods, advSpeaker.Spec.NodeName)
 
 			for _, p := range speakerPods {
-				speakerMetrics, err := metrics.ForPod(controllerPod, p, metallb.Namespace)
+				speakerMetrics, err := metrics.ForPod(promPod, p, metallb.Namespace)
 				framework.ExpectNoError(err)
 
 				err = metrics.ValidateGaugeValue(1, "metallb_speaker_announced", map[string]string{"node": p.Spec.NodeName, "protocol": "layer2", "service": fmt.Sprintf("%s/%s", f.Namespace.Name, svc.Name)}, speakerMetrics)
@@ -660,7 +733,7 @@ var _ = ginkgo.Describe("L2", func() {
 			framework.ExpectNoError(err)
 
 			gomega.Eventually(func() error {
-				speakerMetrics, err := metrics.ForPod(controllerPod, advSpeaker, metallb.Namespace)
+				speakerMetrics, err := metrics.ForPod(promPod, advSpeaker, metallb.Namespace)
 				if err != nil {
 					return err
 				}
