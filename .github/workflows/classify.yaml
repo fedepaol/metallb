@@ -11,14 +11,21 @@ jobs:
       - name: checkout
         uses: actions/checkout@v2
 
-      - name: fetch kind
-        id: kind
-        run: |
-          kind=$(${{ github.event.comment.body }} | awk '/kind/{print $2}')
-          echo "kind=$kind" >> $GITHUB_OUTPUT
-      - name: add labels
-        uses: actions-ecosystem/action-add-labels@v1
-        if: ${{ steps.kind.outputs.kind }} != ""
+      - uses: actions-ecosystem/action-remove-labels@v1
         with:
           labels: |
-            ${{ steps.kind.outputs.kind }}
+            kind/feature
+            kind/bug
+      - uses: actions-ecosystem/action-regex-match@v2
+        id: regex-match
+        with:
+          text: ${{ github.event.pull_request.title }} # e.g. "Test: AB#16845 try to return PR number"
+          regex: '/^\[(.*?)\]/'
+      - name: Echo extracted title
+        run: |
+          echo "${{ steps.regex-match.outputs.group1 }}"
+      - name: add labels
+        uses: actions-ecosystem/action-add-labels@v1
+        with:
+          labels:
+             kind/"${{ steps.regex-match.outputs.group1 }}"
