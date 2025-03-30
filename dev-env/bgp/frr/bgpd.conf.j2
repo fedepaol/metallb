@@ -16,6 +16,7 @@ router bgp 64512
 {%- endfor %}
  {% for ip_family in ip_families %}
  address-family {{ ip_family }} unicast
+  network 10.0.0.0/8
   {% for node_ip in node_ip_by_family[ip_family] %}
   neighbor {{ node_ip }} activate
   neighbor {{ node_ip }} next-hop-self
