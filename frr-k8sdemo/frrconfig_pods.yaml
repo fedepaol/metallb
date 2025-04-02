@@ -1,0 +1,17 @@
+apiVersion: frrk8s.metallb.io/v1beta1
+kind: FRRConfiguration
+metadata:
+  name: advertisepods
+  namespace: metallb-system
+spec:
+  bgp:
+    routers:
+    - asn: 64512
+      neighbors:
+      - address: 172.18.0.5
+        asn: 64512
+        toAdvertise:
+          allowed:
+            mode: all
+      prefixes:
+      - 10.244.2.0/24
