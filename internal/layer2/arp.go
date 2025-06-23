@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -15,7 +16,7 @@ import (
 	"github.com/mdlayher/ethernet"
 )
 
-type announceFunc func(net.IP, string) dropReason
+type announceFunc func(netip.Addr, string) dropReason
 
 type arpResponder struct {
 	logger       log.Logger
@@ -51,9 +52,15 @@ func (a *arpResponder) Close() error {
 	return a.conn.Close()
 }
 
-func (a *arpResponder) Gratuitous(ip net.IP) error {
+func (a *arpResponder) Gratuitous(ip netip.Addr) error {
+	// Convert netip.Addr to net.IP for ARP operations
+	netIP := ip.AsSlice()
+	if netIP == nil {
+		return fmt.Errorf("invalid IP address: %s", ip)
+	}
+
 	for _, op := range []arp.Operation{arp.OperationRequest, arp.OperationReply} {
-		pkt, err := arp.NewPacket(op, a.hardwareAddr, ip, ethernet.Broadcast, ip)
+		pkt, err := arp.NewPacket(op, a.hardwareAddr, netIP, ethernet.Broadcast, netIP)
 		if err != nil {
 			return fmt.Errorf("assembling %q gratuitous packet for %q: %s", op, ip, err)
 		}
@@ -97,8 +104,14 @@ func (a *arpResponder) processRequest() dropReason {
 		return dropReasonEthernetDestination
 	}
 
+	// Convert net.IP to netip.Addr for the announce function
+	targetAddr, err := netip.ParseAddr(pkt.TargetIP.String())
+	if err != nil {
+		return dropReasonError
+	}
+
 	// Ignore ARP requests that the announcer tells us to ignore.
-	reason := a.announce(pkt.TargetIP, a.intf)
+	reason := a.announce(targetAddr, a.intf)
 	if reason == dropReasonNotMatchInterface {
 		level.Debug(a.logger).Log("op", "arpRequestIgnore", "ip", pkt.TargetIP, "interface", a.intf, "reason", "notMatchInterface")
 	}

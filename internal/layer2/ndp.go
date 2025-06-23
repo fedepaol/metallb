@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/netip"
 
 	"github.com/go-kit/log"
 	"github.com/go-kit/log/level"
@@ -27,7 +28,7 @@ type ndpResponder struct {
 
 func newNDPResponder(logger log.Logger, ifi *net.Interface, ann announceFunc) (*ndpResponder, error) {
 	// Use link-local address as the source IPv6 address for NDP communications.
-	conn, _, err := ndp.Dial(ifi, ndp.LinkLocal)
+	conn, _, err := ndp.Listen(ifi, ndp.LinkLocal)
 	if err != nil {
 		return nil, fmt.Errorf("creating NDP responder for %q: %s", ifi.Name, err)
 	}
@@ -52,14 +53,20 @@ func (n *ndpResponder) Close() error {
 	return n.conn.Close()
 }
 
-func (n *ndpResponder) Gratuitous(ip net.IP) error {
-	err := n.advertise(net.IPv6linklocalallnodes, ip, true)
+func (n *ndpResponder) Gratuitous(ip netip.Addr) error {
+	// Convert IPv6 link-local all nodes address to netip.Addr
+	linkLocalAllNodes, err := netip.ParseAddr("ff02::1")
+	if err != nil {
+		return fmt.Errorf("invalid IPv6 link-local all nodes address: %s", err)
+	}
+
+	err = n.advertise(linkLocalAllNodes, ip, true)
 	stats.SentGratuitous(ip.String())
 	return err
 }
 
-func (n *ndpResponder) Watch(ip net.IP) error {
-	if ip.To4() != nil {
+func (n *ndpResponder) Watch(ip netip.Addr) error {
+	if ip.Is4() {
 		return nil
 	}
 	group, err := ndp.SolicitedNodeMulticast(ip)
@@ -75,8 +82,8 @@ func (n *ndpResponder) Watch(ip net.IP) error {
 	return nil
 }
 
-func (n *ndpResponder) Unwatch(ip net.IP) error {
-	if ip.To4() != nil {
+func (n *ndpResponder) Unwatch(ip netip.Addr) error {
+	if ip.Is4() {
 		return nil
 	}
 	group, err := ndp.SolicitedNodeMulticast(ip)
@@ -155,7 +162,7 @@ func (n *ndpResponder) processRequest() dropReason {
 	return dropReasonNone
 }
 
-func (n *ndpResponder) advertise(dst, target net.IP, gratuitous bool) error {
+func (n *ndpResponder) advertise(dst, target netip.Addr, gratuitous bool) error {
 	m := &ndp.NeighborAdvertisement{
 		Solicited:     !gratuitous, // <Adam Jensen> I never asked for this...
 		Override:      gratuitous,  // Should clients replace existing cache entries

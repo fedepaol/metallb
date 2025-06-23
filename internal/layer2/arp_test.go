@@ -6,6 +6,7 @@ import (
 	"encoding"
 	"fmt"
 	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/go-kit/log"
@@ -44,8 +45,8 @@ func TestARPResponder(t *testing.T) {
 		},
 		{
 			name: "shouldAnnounce denies request",
-			shouldAnnounce: func(ip net.IP, intf string) dropReason {
-				if net.IPv4(192, 168, 1, 20).Equal(ip) {
+			shouldAnnounce: func(ip netip.Addr, intf string) dropReason {
+				if ip == netip.MustParseAddr("192.168.1.20") {
 					return dropReasonNone
 				}
 				return dropReasonError
@@ -55,8 +56,8 @@ func TestARPResponder(t *testing.T) {
 		{
 			name:   "shouldAnnounce allows request",
 			arpTgt: net.IPv4(192, 168, 1, 20),
-			shouldAnnounce: func(ip net.IP, intf string) dropReason {
-				if net.IPv4(192, 168, 1, 20).Equal(ip) {
+			shouldAnnounce: func(ip netip.Addr, intf string) dropReason {
+				if ip == netip.MustParseAddr("192.168.1.20") {
 					return dropReasonNone
 				}
 				return dropReasonError
@@ -69,7 +70,7 @@ func TestARPResponder(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			shouldAnnounce := tt.shouldAnnounce
 			if shouldAnnounce == nil {
-				shouldAnnounce = func(net.IP, string) dropReason {
+				shouldAnnounce = func(netip.Addr, string) dropReason {
 					return dropReasonNone
 				}
 			}
