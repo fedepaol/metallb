@@ -5,7 +5,7 @@ package frr
 import (
 	"encoding/json"
 	"fmt"
-	"net"
+	"net/netip"
 	"sort"
 	"strconv"
 
@@ -13,7 +13,7 @@ import (
 )
 
 type Neighbor struct {
-	IP             net.IP
+	IP             netip.Addr
 	VRF            string
 	Connected      bool
 	LocalAS        string
@@ -25,8 +25,8 @@ type Neighbor struct {
 }
 
 type Route struct {
-	Destination *net.IPNet
-	NextHops    []net.IP
+	Destination netip.Prefix
+	NextHops    []netip.Addr
 	LocalPref   uint32
 	Origin      string
 }
@@ -115,9 +115,9 @@ func ParseNeighbour(vtyshRes string) (*Neighbor, error) {
 		return nil, errors.New("no peers were returned")
 	}
 	for k, n := range res {
-		ip := net.ParseIP(k)
-		if ip == nil {
-			return nil, fmt.Errorf("failed to parse %s as ip", ip)
+		ip, err := netip.ParseAddr(k)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse %s as ip: %w", k, err)
 		}
 		connected := true
 		if n.BgpState != bgpConnected {
@@ -152,9 +152,9 @@ func ParseNeighbours(vtyshRes string) ([]*Neighbor, error) {
 
 	res := make([]*Neighbor, 0)
 	for k, n := range toParse {
-		ip := net.ParseIP(k)
-		if ip == nil {
-			return nil, fmt.Errorf("failed to parse %s as ip", ip)
+		ip, err := netip.ParseAddr(k)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse %s as ip: %w", k, err)
 		}
 		connected := true
 		if n.BgpState != bgpConnected {
@@ -189,36 +189,31 @@ func ParseRoutes(vtyshRes string) (map[string]Route, error) {
 
 	res := make(map[string]Route)
 	for k, frrRoutes := range toParse.Routes {
-		destIP, dest, err := net.ParseCIDR(k)
+		dest, err := netip.ParsePrefix(k)
 		if err != nil {
 			return nil, errors.Join(err, fmt.Errorf("failed to parse cidr for %s", k))
 		}
 
 		r := Route{
 			Destination: dest,
-			NextHops:    make([]net.IP, 0),
+			NextHops:    make([]netip.Addr, 0),
 		}
-		for _, n := range frrRoutes {
-			r.LocalPref = n.LocalPref
-			r.Origin = n.Origin
-		out:
-			for _, h := range n.Nexthops {
-				ip := net.ParseIP(h.IP)
-				if ip == nil {
-					return nil, fmt.Errorf("failed to parse ip %s", h.IP)
+
+		for _, frrRoute := range frrRoutes {
+			if !frrRoute.Valid {
+				continue
+			}
+			r.LocalPref = frrRoute.LocalPref
+			r.Origin = frrRoute.Origin
+			for _, nh := range frrRoute.Nexthops {
+				nextHop, err := netip.ParseAddr(nh.IP)
+				if err != nil {
+					return nil, errors.Join(err, fmt.Errorf("failed to parse nexthop %s", nh.IP))
 				}
-				if ip.To4() == nil && h.Scope == "link-local" {
-					continue
-				}
-				for _, current := range r.NextHops {
-					if ip.Equal(current) {
-						continue out
-					}
-				}
-				r.NextHops = append(r.NextHops, ip)
+				r.NextHops = append(r.NextHops, nextHop)
 			}
 		}
-		res[destIP.String()] = r
+		res[k] = r
 	}
 	return res, nil
 }

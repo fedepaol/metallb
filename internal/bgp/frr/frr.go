@@ -4,7 +4,7 @@ package frr
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"os"
 	"sort"
 	"strconv"
@@ -250,7 +250,8 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 
 		neighborName := NeighborName(s.PeerAddress, s.PeerInterface, s.PeerASN, s.DynamicASN, s.VRFName)
 		if neighbor, exist = rout.neighbors[neighborName]; !exist {
-			family := ipfamily.ForAddress(net.ParseIP(s.PeerAddress))
+			addr, _ := netip.ParseAddr(s.PeerAddress)
+			family := ipfamily.ForAddress(addr)
 
 			if s.PeerInterface != "" || s.DualStackAddressFamily {
 				family = ipfamily.DualStack
@@ -303,7 +304,8 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 
 		for _, adv := range s.advertised {
 			prefix := adv.Prefix.String()
-			family := ipfamily.ForAddress(adv.Prefix.IP)
+			addr, _ := netip.ParseAddr(adv.Prefix.IP.String())
+			family := ipfamily.ForAddress(addr)
 
 			if neighbor.IPFamily != family &&
 				neighbor.IPFamily != ipfamily.DualStack {
