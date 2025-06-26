@@ -53,11 +53,12 @@ func (a *arpResponder) Close() error {
 }
 
 func (a *arpResponder) Gratuitous(ip netip.Addr) error {
-	// Convert netip.Addr to net.IP for ARP operations
-	netIP := ip.AsSlice()
-	if netIP == nil {
+	if !ip.IsValid() {
 		return fmt.Errorf("invalid IP address: %s", ip)
 	}
+
+	// Convert netip.Addr to bytes for ARP operations
+	netIP := ip.AsSlice()
 
 	for _, op := range []arp.Operation{arp.OperationRequest, arp.OperationReply} {
 		pkt, err := arp.NewPacket(op, a.hardwareAddr, netIP, ethernet.Broadcast, netIP)
@@ -104,9 +105,9 @@ func (a *arpResponder) processRequest() dropReason {
 		return dropReasonEthernetDestination
 	}
 
-	// Convert net.IP to netip.Addr for the announce function
-	targetAddr, err := netip.ParseAddr(pkt.TargetIP.String())
-	if err != nil {
+	// Convert target IP bytes to netip.Addr for the announce function
+	targetAddr, ok := netip.AddrFromSlice(pkt.TargetIP)
+	if !ok {
 		return dropReasonError
 	}
 

@@ -106,16 +106,16 @@ func (a *Announce) updateInterfaces() {
 		}
 
 		for _, addr := range addrs {
-			ipaddr, ok := addr.(*net.IPNet)
+			ipnet, ok := addr.(*net.IPNet)
 			if !ok {
 				continue
 			}
-			// Convert net.IP to netip.Addr for checking
-			addr, err := netip.ParseAddr(ipaddr.IP.String())
-			if err != nil {
+			// Convert IP bytes to netip.Addr for checking
+			ipAddr, ok := netip.AddrFromSlice(ipnet.IP)
+			if !ok {
 				continue
 			}
-			if addr.Is4() || !addr.IsLinkLocalUnicast() {
+			if ipAddr.Is4() || !ipAddr.IsLinkLocalUnicast() {
 				continue
 			}
 			keepNDP[ifi.Index] = true

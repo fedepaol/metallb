@@ -16,7 +16,7 @@ package main
 
 import (
 	"fmt"
-	"net"
+	"net/netip"
 	"reflect"
 	"sort"
 	"sync"
@@ -91,7 +91,7 @@ newPeers:
 			}
 		}
 		id := p.Iface
-		if p.Addr != nil {
+		if p.Addr.IsValid() {
 			id = p.Addr.String()
 		}
 
@@ -168,7 +168,7 @@ func hasHealthyEndpoint(eps []discovery.EndpointSlice, filterNode func(*string) 
 	return false
 }
 
-func (c *bgpController) ShouldAnnounce(l log.Logger, name string, _ []net.IP, pool *config.Pool, svc *v1.Service, epSlices []discovery.EndpointSlice, nodes map[string]*v1.Node) string {
+func (c *bgpController) ShouldAnnounce(l log.Logger, name string, _ []netip.Addr, pool *config.Pool, svc *v1.Service, epSlices []discovery.EndpointSlice, nodes map[string]*v1.Node) string {
 	if !poolMatchesNodeBGP(pool, c.myNode) {
 		level.Debug(l).Log("event", "skipping should announce bgp", "service", name, "reason", "pool not matching my node")
 		return "notOwner"
@@ -237,13 +237,13 @@ func (c *bgpController) syncPeers(l log.Logger) error {
 			// Session doesn't exist, but should be running. Create
 			// it.
 			level.Info(l).Log("event", "peerAdded", "peer", p.id, "msg", "peer configured, starting BGP session")
-			var routerID net.IP
-			if p.cfg.RouterID != nil {
+			var routerID netip.Addr
+			if p.cfg.RouterID.IsValid() {
 				routerID = p.cfg.RouterID
 			}
 
-			peerAddr := "" // we need because otherwise the value will "<nil>"
-			if p.cfg.Addr != nil {
+			peerAddr := ""
+			if p.cfg.Addr.IsValid() {
 				peerAddr = p.cfg.Addr.String()
 			}
 			sessionParams := bgp.SessionParameters{
@@ -324,7 +324,7 @@ func (c *bgpController) syncBFDProfiles(profiles map[string]*config.BFDProfile) 
 	return c.sessionManager.SyncBFDProfiles(profiles)
 }
 
-func (c *bgpController) SetBalancer(l log.Logger, name string, lbIPs []net.IP, pool *config.Pool, _ service, _ *v1.Service) error {
+func (c *bgpController) SetBalancer(l log.Logger, name string, lbIPs []netip.Addr, pool *config.Pool, _ service, _ *v1.Service) error {
 	c.svcAds[name] = nil
 	for _, lbIP := range lbIPs {
 		for _, adCfg := range pool.BGPAdvertisements {
@@ -332,15 +332,13 @@ func (c *bgpController) SetBalancer(l log.Logger, name string, lbIPs []net.IP, p
 			if !adCfg.Nodes[c.myNode] {
 				continue
 			}
-			m := net.CIDRMask(adCfg.AggregationLength, 32)
-			if lbIP.To4() == nil {
-				m = net.CIDRMask(adCfg.AggregationLengthV6, 128)
+			bits := adCfg.AggregationLength
+			if lbIP.Is6() {
+				bits = adCfg.AggregationLengthV6
 			}
+			pfx := netip.PrefixFrom(lbIP, bits)
 			ad := &bgp.Advertisement{
-				Prefix: &net.IPNet{
-					IP:   lbIP.Mask(m),
-					Mask: m,
-				},
+				Prefix:    pfx,
 				LocalPref: adCfg.LocalPref,
 			}
 			if len(adCfg.Peers) > 0 {

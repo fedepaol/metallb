@@ -4,7 +4,7 @@ package native
 
 import (
 	"bytes"
-	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -20,10 +20,11 @@ func TestOpen(t *testing.T) {
 	var b bytes.Buffer
 	wantHold := 4 * time.Second
 	wantASN := uint32(12345)
-	if err := sendOpen(&b, wantASN, net.ParseIP("1.2.3.4"), wantHold); err != nil {
+	ip := netip.MustParseAddr("1.2.3.4")
+	if err := sendOpenNetip(&b, wantASN, ip, wantHold); err != nil {
 		t.Fatalf("Send open: %s", err)
 	}
-	op, err := readOpen(&b)
+	op, err := readOpenNetip(&b)
 	if err != nil {
 		t.Fatalf("Read open: %s", err)
 	}
@@ -106,7 +107,7 @@ func TestSendUpdate(t *testing.T) {
 		asn         uint32
 		ibgp        bool
 		fbasn       bool
-		nextHop     net.IP
+		nextHop     netip.Addr
 		adv         *bgp.Advertisement
 		errorString string
 	}{
@@ -114,11 +115,10 @@ func TestSendUpdate(t *testing.T) {
 			asn:     65000,
 			ibgp:    false,
 			fbasn:   false,
-			nextHop: net.ParseIP("192.168.123.10"),
+			nextHop: netip.MustParseAddr("192.168.123.10"),
 			adv: &bgp.Advertisement{
-				Prefix: func() *net.IPNet {
-					_, ipnet, _ := net.ParseCIDR("172.16.0.0/24")
-					return ipnet
+				Prefix: func() netip.Prefix {
+					return netip.MustParsePrefix("172.16.0.0/24")
 				}(),
 				LocalPref: 100,
 				Communities: func() []community.BGPCommunity {
@@ -134,11 +134,10 @@ func TestSendUpdate(t *testing.T) {
 			asn:     65000,
 			ibgp:    false,
 			fbasn:   false,
-			nextHop: net.ParseIP("192.168.123.10"),
+			nextHop: netip.MustParseAddr("192.168.123.10"),
 			adv: &bgp.Advertisement{
-				Prefix: func() *net.IPNet {
-					_, ipnet, _ := net.ParseCIDR("172.16.0.0/24")
-					return ipnet
+				Prefix: func() netip.Prefix {
+					return netip.MustParsePrefix("172.16.0.0/24")
 				}(),
 				LocalPref: 100,
 				Communities: func() []community.BGPCommunity {
@@ -196,3 +195,5 @@ func FuzzReadOpen(f *testing.F) {
 		_, _ = readOpen(bytes.NewBuffer(input))
 	})
 }
+
+// Add sendOpenNetip and readOpenNetip helpers that use netip.Addr instead of net.IP

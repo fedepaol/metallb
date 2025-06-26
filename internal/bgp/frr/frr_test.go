@@ -7,7 +7,6 @@ import (
 	"flag"
 	"fmt"
 	"math/rand"
-	"net"
 	"net/netip"
 	"os"
 	"os/exec"
@@ -25,13 +24,6 @@ import (
 )
 
 const testData = "testdata/"
-
-var classCMask = net.IPv4Mask(0xff, 0xff, 0xff, 0)
-
-// Helper function to convert netip.Addr to net.IP for net.IPNet compatibility
-func mustParseIP(ip string) net.IP {
-	return netip.MustParseAddr(ip).AsSlice()
-}
 
 var update = flag.Bool("update", false, "update .golden files")
 
@@ -124,9 +116,9 @@ func TestSingleEBGPSessionMultiHop(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -152,9 +144,9 @@ func TestSingleEBGPSessionOneHop(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "127.0.0.2",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -181,9 +173,9 @@ func TestSingleIPv6EBGPSessionOneHop(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "127:0:0::2",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10:1:1::254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10:1:1::254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -210,9 +202,9 @@ func TestSingleIBGPSession(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       100,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -239,9 +231,9 @@ func TestSingleIPv6IBGPSession(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10:2:2::254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10:1:1::254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10:1:1::254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       100,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -269,9 +261,9 @@ func TestSingleSessionClose(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -298,9 +290,9 @@ func TestSingleSessionWithGracefulRestart(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:     "10.2.2.254",
 			PeerPort:        179,
-			SourceAddress:   netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress:   netip.MustParseAddr("10.1.1.254"),
 			MyASN:           102,
-			RouterID:        netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:        netip.MustParseAddr("10.1.1.254"),
 			PeerASN:         100,
 			GracefulRestart: true,
 			SessionName:     "test-peer"})
@@ -323,9 +315,9 @@ func TestTwoSessions(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -343,9 +335,9 @@ func TestTwoSessions(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.4.4.255",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.3.3.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.3.3.254"),
 			MyASN:         300,
-			RouterID:      netip.MustParseAddr("10.3.3.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.3.3.254"),
 			PeerASN:       400,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -374,9 +366,9 @@ func TestTwoIPv6Sessions(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10:2:2::254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10:1:1::254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10:1:1::254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -392,9 +384,9 @@ func TestTwoIPv6Sessions(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10:4:4::255",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10:3:3::254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10:3:3::254"),
 			MyASN:         300,
-			RouterID:      netip.MustParseAddr("10.3.3.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.3.3.254"),
 			PeerASN:       400,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -421,9 +413,9 @@ func TestIPv4AndIPv6SessionsDualStackFamily(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:            "10:2:2::254",
 			PeerPort:               179,
-			SourceAddress:          netip.MustParseAddr("10:1:1::254").AsSlice(),
+			SourceAddress:          netip.MustParseAddr("10:1:1::254"),
 			MyASN:                  100,
-			RouterID:               netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:               netip.MustParseAddr("10.1.1.254"),
 			PeerASN:                200,
 			HoldTime:               ptr.To(time.Second),
 			KeepAliveTime:          ptr.To(time.Second),
@@ -441,9 +433,9 @@ func TestIPv4AndIPv6SessionsDualStackFamily(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:            "10.4.4.255",
 			PeerPort:               179,
-			SourceAddress:          netip.MustParseAddr("10.3.3.254").AsSlice(),
+			SourceAddress:          netip.MustParseAddr("10.3.3.254"),
 			MyASN:                  300,
-			RouterID:               netip.MustParseAddr("10.3.3.254").AsSlice(),
+			RouterID:               netip.MustParseAddr("10.3.3.254"),
 			PeerASN:                400,
 			HoldTime:               ptr.To(time.Second),
 			KeepAliveTime:          ptr.To(time.Second),
@@ -470,9 +462,9 @@ func TestTwoSessionsDuplicate(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -489,9 +481,9 @@ func TestTwoSessionsDuplicate(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -518,9 +510,9 @@ func TestTwoSessionsDuplicateRouter(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -536,9 +528,9 @@ func TestTwoSessionsDuplicateRouter(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.4.4.255",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       400,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -565,9 +557,9 @@ func TestSingleAdvertisement(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -581,10 +573,7 @@ func TestSingleAdvertisement(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix := mustParsePrefix(t, "172.16.1.10/24")
 	communities := []community.BGPCommunity{}
 	community1, _ := community.New("1111:2222")
 	communities = append(communities, community1)
@@ -614,9 +603,9 @@ func TestSingleAdvertisementNoRouterID(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      nil,
+			RouterID:      netip.Addr{},
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -630,10 +619,7 @@ func TestSingleAdvertisementNoRouterID(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix := mustParsePrefix(t, "172.16.1.10/24")
 
 	adv := &bgp.Advertisement{
 		Prefix: prefix,
@@ -657,9 +643,9 @@ func TestSingleAdvertisementStop(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -673,10 +659,7 @@ func TestSingleAdvertisementStop(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix := mustParsePrefix(t, "172.16.1.10/24")
 
 	adv := &bgp.Advertisement{
 		Prefix: prefix,
@@ -705,9 +688,9 @@ func TestSingleAdvertisementChange(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -720,10 +703,7 @@ func TestSingleAdvertisementChange(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix := mustParsePrefix(t, "172.16.1.10/24")
 
 	adv := &bgp.Advertisement{
 		Prefix: prefix,
@@ -734,10 +714,7 @@ func TestSingleAdvertisementChange(t *testing.T) {
 		t.Fatalf("Could not advertise prefix: %s", err)
 	}
 
-	prefix = &net.IPNet{
-		IP:   mustParseIP("172.16.1.11"),
-		Mask: classCMask,
-	}
+	prefix = mustParsePrefix(t, "172.16.1.11/24")
 
 	adv = &bgp.Advertisement{
 		Prefix: prefix,
@@ -761,9 +738,9 @@ func TestTwoAdvertisements(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -776,10 +753,7 @@ func TestTwoAdvertisements(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix1 := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix1 := mustParsePrefix(t, "172.16.1.10/24")
 	communities := []community.BGPCommunity{}
 	community, _ := community.New("1111:2222")
 	communities = append(communities, community)
@@ -788,10 +762,7 @@ func TestTwoAdvertisements(t *testing.T) {
 		Communities: communities,
 	}
 
-	prefix2 := &net.IPNet{
-		IP:   mustParseIP("172.16.1.11"),
-		Mask: classCMask,
-	}
+	prefix2 := mustParsePrefix(t, "172.16.1.11/24")
 
 	adv2 := &bgp.Advertisement{
 		Prefix: prefix2,
@@ -815,9 +786,9 @@ func TestTwoAdvertisementsDuplicate(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -830,10 +801,7 @@ func TestTwoAdvertisementsDuplicate(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix1 := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix1 := mustParsePrefix(t, "172.16.1.10/24")
 	adv1 := &bgp.Advertisement{
 		Prefix: prefix1,
 	}
@@ -863,9 +831,9 @@ func TestTwoAdvertisementsTwoSessions(t *testing.T) {
 				{
 					PeerAddress:   "10.2.2.254",
 					PeerPort:      179,
-					SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+					SourceAddress: netip.MustParseAddr("10.1.1.254"),
 					MyASN:         100,
-					RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+					RouterID:      netip.MustParseAddr("10.1.1.254"),
 					PeerASN:       200,
 					HoldTime:      ptr.To(time.Second),
 					KeepAliveTime: ptr.To(time.Second),
@@ -877,9 +845,9 @@ func TestTwoAdvertisementsTwoSessions(t *testing.T) {
 				{
 					PeerAddress:   "10.2.2.255",
 					PeerPort:      179,
-					SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+					SourceAddress: netip.MustParseAddr("10.1.1.254"),
 					MyASN:         100,
-					RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+					RouterID:      netip.MustParseAddr("10.1.1.254"),
 					PeerASN:       200,
 					HoldTime:      ptr.To(time.Second),
 					KeepAliveTime: ptr.To(time.Second),
@@ -908,10 +876,7 @@ func TestTwoAdvertisementsTwoSessions(t *testing.T) {
 			}
 			defer session1.Close()
 
-			prefix1 := &net.IPNet{
-				IP:   mustParseIP("172.16.1.10"),
-				Mask: classCMask,
-			}
+			prefix1 := mustParsePrefix(t, "172.16.1.10/24")
 			communities := []community.BGPCommunity{}
 			community, _ := community.New("1111:2222")
 			communities = append(communities, community)
@@ -920,10 +885,7 @@ func TestTwoAdvertisementsTwoSessions(t *testing.T) {
 				Communities: communities,
 			}
 
-			prefix2 := &net.IPNet{
-				IP:   mustParseIP("172.16.1.11"),
-				Mask: classCMask,
-			}
+			prefix2 := mustParsePrefix(t, "172.16.1.11/24")
 
 			adv2 := &bgp.Advertisement{
 				Prefix:      prefix2,
@@ -967,9 +929,9 @@ func TestSingleSessionExtras(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "127.0.0.2",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -1049,9 +1011,9 @@ func TestLargeCommunities(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -1064,10 +1026,7 @@ func TestLargeCommunities(t *testing.T) {
 	}
 	defer session.Close()
 
-	prefix := &net.IPNet{
-		IP:   mustParseIP("172.16.1.10"),
-		Mask: classCMask,
-	}
+	prefix := mustParsePrefix(t, "172.16.1.10/24")
 	communities := []community.BGPCommunity{}
 	community1, _ := community.New("large:1111:2222:3333")
 	communities = append(communities, community1)
@@ -1099,9 +1058,9 @@ func TestManyAdvertisementsSameCommunity(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:   "10.2.2.254",
 			PeerPort:      179,
-			SourceAddress: netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress: netip.MustParseAddr("10.1.1.254"),
 			MyASN:         100,
-			RouterID:      netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:      netip.MustParseAddr("10.1.1.254"),
 			PeerASN:       200,
 			HoldTime:      ptr.To(time.Second),
 			KeepAliveTime: ptr.To(time.Second),
@@ -1119,10 +1078,7 @@ func TestManyAdvertisementsSameCommunity(t *testing.T) {
 	communities := []community.BGPCommunity{community1}
 	advs := []*bgp.Advertisement{}
 	for i := 0; i < 10; i++ {
-		prefix := &net.IPNet{
-			IP:   mustParseIP(fmt.Sprintf("172.16.1.%d", i)),
-			Mask: classCMask,
-		}
+		prefix := mustParsePrefix(t, fmt.Sprintf("172.16.1.%d/24", i))
 		adv := &bgp.Advertisement{
 			Prefix:      prefix,
 			Communities: communities,
@@ -1194,9 +1150,9 @@ func TestSingleSessionWithInternalASN(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:     "10.2.2.254",
 			PeerPort:        179,
-			SourceAddress:   netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress:   netip.MustParseAddr("10.1.1.254"),
 			MyASN:           102,
-			RouterID:        netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:        netip.MustParseAddr("10.1.1.254"),
 			DynamicASN:      "internal",
 			GracefulRestart: true,
 			SessionName:     "test-peer"})
@@ -1219,9 +1175,9 @@ func TestSingleSessionWithExternalASN(t *testing.T) {
 		bgp.SessionParameters{
 			PeerAddress:     "10.2.2.254",
 			PeerPort:        179,
-			SourceAddress:   netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress:   netip.MustParseAddr("10.1.1.254"),
 			MyASN:           102,
-			RouterID:        netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:        netip.MustParseAddr("10.1.1.254"),
 			DynamicASN:      "external",
 			GracefulRestart: true,
 			SessionName:     "test-peer"})
@@ -1244,9 +1200,9 @@ func TestUnnumberedSession(t *testing.T) {
 		bgp.SessionParameters{
 			PeerInterface:   "net0",
 			PeerPort:        179,
-			SourceAddress:   netip.MustParseAddr("10.1.1.254").AsSlice(),
+			SourceAddress:   netip.MustParseAddr("10.1.1.254"),
 			MyASN:           102,
-			RouterID:        netip.MustParseAddr("10.1.1.254").AsSlice(),
+			RouterID:        netip.MustParseAddr("10.1.1.254"),
 			DynamicASN:      "external",
 			GracefulRestart: true,
 			SessionName:     "test-peer"})

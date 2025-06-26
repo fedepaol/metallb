@@ -3,7 +3,7 @@
 package main
 
 import (
-	"net"
+	"net/netip"
 	"testing"
 
 	"github.com/go-kit/log"
@@ -25,7 +25,7 @@ func mockNewController(l2Handler *MockProtocol, bgpHandler *MockProtocol, t *tes
 			config.BGP:    bgpHandler,
 		},
 		announced: map[config.Proto]map[string]bool{},
-		svcIPs:    map[string][]net.IP{},
+		svcIPs:    map[string][]netip.Addr{},
 		protocols: config.Protocols,
 		client:    &testK8S{t: t},
 	}
@@ -60,7 +60,7 @@ func TestLoadBalancerCreation(t *testing.T) {
 	cfg := &config.Config{
 		Pools: &config.Pools{ByName: map[string]*config.Pool{
 			"default": {
-				CIDR: []*net.IPNet{ipnet("10.20.30.0/24")},
+				CIDR: []netip.Prefix{mustParsePrefix("10.20.30.0/24")},
 			},
 		}},
 	}
@@ -84,7 +84,7 @@ func TestLoadBalancerCreation(t *testing.T) {
 	if !bgpMockHandler.setBalancerCalled {
 		t.Fatal("two handlers, bgp handler was not called")
 	}
-	if !c.svcIPs["testsvc"][0].Equal(net.ParseIP("10.20.30.1")) {
+	if c.svcIPs["testsvc"][0] != netip.MustParseAddr("10.20.30.1") {
 		t.Fatal("two handlers, svc ip is not valid", c.svcIPs["testsvc"][0])
 	}
 	if !c.announced[config.BGP]["testsvc"] {
@@ -116,7 +116,7 @@ func TestLoadBalancerCreation(t *testing.T) {
 	if !bgpMockHandler.setBalancerCalled {
 		t.Fatal("one handler, bgp handler was not called")
 	}
-	if !c.svcIPs["testsvc"][0].Equal(net.ParseIP("10.20.30.1")) {
+	if c.svcIPs["testsvc"][0] != netip.MustParseAddr("10.20.30.1") {
 		t.Fatal("one handler, svc ip is not valid", c.svcIPs["testsvc"][0])
 	}
 	if !c.announced[config.BGP]["testsvc"] {
@@ -172,14 +172,14 @@ func (m *MockProtocol) SetConfig(l log.Logger, c *config.Config) error {
 	return nil
 }
 
-func (m *MockProtocol) ShouldAnnounce(_ log.Logger, _ string, _ []net.IP, _ *config.Pool, _ *v1.Service, _ []discovery.EndpointSlice, _ map[string]*v1.Node) string {
+func (m *MockProtocol) ShouldAnnounce(_ log.Logger, _ string, _ []netip.Addr, _ *config.Pool, _ *v1.Service, _ []discovery.EndpointSlice, _ map[string]*v1.Node) string {
 	if m.shouldAnnounce {
 		return ""
 	}
 	return "no announce"
 }
 
-func (m *MockProtocol) SetBalancer(_ log.Logger, _ string, _ []net.IP, _ *config.Pool, _ service, _ *v1.Service) error {
+func (m *MockProtocol) SetBalancer(_ log.Logger, _ string, _ []netip.Addr, _ *config.Pool, _ service, _ *v1.Service) error {
 	m.setBalancerCalled = true
 	return nil
 }
@@ -198,4 +198,13 @@ func (m *MockProtocol) SetEventCallback(_ func(interface{})) {}
 func (m *MockProtocol) reset() {
 	m.deleteBalancerCalled = false
 	m.setBalancerCalled = false
+}
+
+// Helper for test prefix parsing
+func mustParsePrefix(s string) netip.Prefix {
+	pfx, err := netip.ParsePrefix(s)
+	if err != nil {
+		panic(err)
+	}
+	return pfx
 }

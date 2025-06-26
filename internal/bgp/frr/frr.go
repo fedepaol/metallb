@@ -242,7 +242,7 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 				ipV6Prefixes: make(map[string]string),
 				vrf:          s.VRFName,
 			}
-			if s.RouterID != nil {
+			if s.RouterID.IsValid() {
 				rout.routerID = s.RouterID.String()
 			}
 			routers[routerName] = rout
@@ -295,7 +295,7 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 				CommunityPrefixModifiers: make(map[string]CommunityPrefixList),
 				LocalPrefPrefixModifiers: make(map[string]LocalPrefPrefixList),
 			}
-			if s.SourceAddress != nil {
+			if s.SourceAddress.IsValid() {
 				neighbor.SrcAddr = s.SourceAddress.String()
 			}
 
@@ -304,7 +304,7 @@ func (sm *sessionManager) createConfig() (*frrConfig, error) {
 
 		for _, adv := range s.advertised {
 			prefix := adv.Prefix.String()
-			addr, _ := netip.ParseAddr(adv.Prefix.IP.String())
+			addr := adv.Prefix.Addr()
 			family := ipfamily.ForAddress(addr)
 
 			if neighbor.IPFamily != family &&

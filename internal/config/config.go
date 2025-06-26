@@ -15,16 +15,15 @@
 package config // import "go.universe.tf/metallb/internal/config"
 
 import (
-	"bytes"
 	"fmt"
-	"net"
 	"reflect"
-	"slices"
 	"sort"
 	"strings"
 	"time"
 
 	"errors"
+
+	"net/netip"
 
 	"github.com/mikioh/ipaddr"
 
@@ -100,12 +99,12 @@ type Peer struct {
 	// Detect the AS number to use for the remote end of the session.
 	DynamicASN string
 	// Address to dial when establishing the session.
-	Addr net.IP
+	Addr netip.Addr
 	// Iface is the Interface to use for Unnumbered BGP peering.
 	// Addr field must be nil.
 	Iface string
 	// Source address to use when establishing the session.
-	SrcAddr net.IP
+	SrcAddr netip.Addr
 	// Port to dial when establishing the session.
 	Port uint16
 	// Requested BGP hold time, per RFC4271.
@@ -115,7 +114,7 @@ type Peer struct {
 	// Requested BGP connect time, controls how long BGP waits between connection attempts to a neighbor.
 	ConnectTime *time.Duration
 	// BGP router ID to advertise to the peer
-	RouterID net.IP
+	RouterID netip.Addr
 	// Only connect to this peer on nodes that match one of these
 	// selectors.
 	NodeSelectors []labels.Selector
@@ -144,7 +143,7 @@ type Pool struct {
 	// The addresses that are part of this pool, expressed as CIDR
 	// prefixes. config.Parse guarantees that these are
 	// non-overlapping, both within and between pools.
-	CIDR []*net.IPNet
+	CIDR []netip.Prefix
 	// Some buggy consumer devices mistakenly drop IPv4 traffic for IP
 	// addresses ending in .0 or .255, due to poor implementations of
 	// smurf protection. This setting marks such addresses as
@@ -161,7 +160,7 @@ type Pool struct {
 	// The list of L2Advertisements associated with this address pool.
 	L2Advertisements []*L2Advertisement
 
-	cidrsPerAddresses map[string][]*net.IPNet
+	cidrsPerAddresses map[string][]netip.Prefix
 
 	ServiceAllocations *ServiceAllocation
 }
@@ -308,7 +307,7 @@ func poolsFor(resources ClusterResources) (*Pools, error) {
 		return nil, err
 	}
 
-	var allCIDRs []*net.IPNet
+	var allCIDRs []netip.Prefix
 	for _, p := range resources.Pools {
 		pool, err := addressPoolFromCR(p, resources.Namespaces)
 		if err != nil {
@@ -405,10 +404,11 @@ func peerFromCR(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secr
 		return nil, fmt.Errorf("invalid BGPPeer timers: %w", err)
 	}
 
-	var ip net.IP
+	var ip netip.Addr
 	if p.Spec.Address != "" {
-		ip = net.ParseIP(p.Spec.Address)
-		if ip == nil {
+		var err error
+		ip, err = netip.ParseAddr(p.Spec.Address)
+		if err != nil {
 			return nil, fmt.Errorf("invalid BGPPeer address %q", p.Spec.Address)
 		}
 	}
@@ -416,16 +416,21 @@ func peerFromCR(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secr
 	// Ideally we would set a default RouterID here, instead of having
 	// to do it elsewhere in the code. Unfortunately, we don't know
 	// the node IP here.
-	var routerID net.IP
+	var routerID netip.Addr
 	if p.Spec.RouterID != "" {
-		routerID = net.ParseIP(p.Spec.RouterID)
-		if routerID == nil {
+		var err error
+		routerID, err = netip.ParseAddr(p.Spec.RouterID)
+		if err != nil {
 			return nil, fmt.Errorf("invalid router ID %q", p.Spec.RouterID)
 		}
 	}
-	src := net.ParseIP(p.Spec.SrcAddress)
-	if p.Spec.SrcAddress != "" && src == nil {
-		return nil, fmt.Errorf("invalid source IP %q", p.Spec.SrcAddress)
+	var src netip.Addr
+	if p.Spec.SrcAddress != "" {
+		var err error
+		src, err = netip.ParseAddr(p.Spec.SrcAddress)
+		if err != nil {
+			return nil, fmt.Errorf("invalid source IP %q", p.Spec.SrcAddress)
+		}
 	}
 
 	err = validateLabelSelectorDuplicate(p.Spec.NodeSelectors, "nodeSelectors")
@@ -488,19 +493,19 @@ func peerFromCR(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secr
 }
 
 func passwordFromSecretForPeer(p metallbv1beta2.BGPPeer, passwordSecrets map[string]corev1.Secret) (string, error) {
-	secret, ok := passwordSecrets[p.Spec.PasswordSecret.Name]
+	sec, ok := passwordSecrets[p.Spec.PasswordSecret.Name]
 	if !ok {
 		return "", TransientError{Message: fmt.Sprintf("secret ref not found for peer config %q/%q", p.Namespace, p.Name)}
 	}
 
-	if secret.Type != corev1.SecretTypeBasicAuth {
-		return "", fmt.Errorf("secret type mismatch on %q/%q, type %q is expected ", secret.Namespace,
-			secret.Name, corev1.SecretTypeBasicAuth)
+	if sec.Type != corev1.SecretTypeBasicAuth {
+		return "", fmt.Errorf("secret type mismatch on %q/%q, type %q is expected ", sec.Namespace,
+			sec.Name, corev1.SecretTypeBasicAuth)
 	}
 
-	srcPass, ok := secret.Data["password"]
+	srcPass, ok := sec.Data["password"]
 	if !ok {
-		return "", fmt.Errorf("password not specified in the secret %q/%q", secret.Namespace, secret.Name)
+		return "", fmt.Errorf("password not specified in the secret %q/%q", sec.Namespace, sec.Name)
 	}
 
 	return string(srcPass), nil
@@ -525,7 +530,7 @@ func addressPoolFromCR(p metallbv1beta1.IPAddressPool, namespaces []corev1.Names
 		return nil, errors.New("pool has no prefixes defined")
 	}
 
-	ret.cidrsPerAddresses = map[string][]*net.IPNet{}
+	ret.cidrsPerAddresses = map[string][]netip.Prefix{}
 	for _, cidr := range p.Spec.Addresses {
 		nets, err := ParseCIDR(cidr)
 		if err != nil {
@@ -873,7 +878,7 @@ func validateBGPAdvPerPool(adv *BGPAdvertisement, pool *Pool) error {
 			continue
 		}
 		maxLength := adv.AggregationLength
-		if cidrs[0].IP.To4() == nil {
+		if cidrs[0].Addr().Is6() {
 			maxLength = adv.AggregationLengthV6
 		}
 
@@ -900,6 +905,16 @@ func validateBGPAdvPerPool(adv *BGPAdvertisement, pool *Pool) error {
 	return nil
 }
 
+// containsString returns true if s is in slice.
+func containsString(slice []string, s string) bool {
+	for _, v := range slice {
+		if v == s {
+			return true
+		}
+	}
+	return false
+}
+
 func advertisementsAreCompatible(newAdv, adv *BGPAdvertisement, pool *Pool) bool {
 	if isAggrLengthDifferent(newAdv, adv, pool) {
 		return true
@@ -909,7 +924,7 @@ func advertisementsAreCompatible(newAdv, adv *BGPAdvertisement, pool *Pool) bool
 	if len(newAdv.Peers) != 0 && len(adv.Peers) != 0 {
 		equalPeer := false
 		for _, peer := range newAdv.Peers {
-			if slices.Contains(adv.Peers, peer) {
+			if containsString(adv.Peers, peer) {
 				equalPeer = true
 				break
 			}
@@ -960,68 +975,59 @@ func isAggrLengthDifferent(newAdv, adv *BGPAdvertisement, pool *Pool) bool {
 	return false
 }
 
-func ParseCIDR(cidr string) ([]*net.IPNet, error) {
+func ParseCIDR(cidr string) ([]netip.Prefix, error) {
 	if !strings.Contains(cidr, "-") {
-		_, n, err := net.ParseCIDR(cidr)
+		pfx, err := netip.ParsePrefix(cidr)
 		if err != nil {
 			return nil, fmt.Errorf("invalid CIDR %q", cidr)
 		}
-		return []*net.IPNet{n}, nil
+		return []netip.Prefix{pfx}, nil
 	}
 
 	fs := strings.SplitN(cidr, "-", 2)
 	if len(fs) != 2 {
 		return nil, fmt.Errorf("invalid IP range %q", cidr)
 	}
-	start := net.ParseIP(strings.TrimSpace(fs[0]))
-	if start == nil {
+	start, err := netip.ParseAddr(strings.TrimSpace(fs[0]))
+	if err != nil {
 		return nil, fmt.Errorf("invalid IP range %q: invalid start IP %q", cidr, fs[0])
 	}
-	end := net.ParseIP(strings.TrimSpace(fs[1]))
-	if end == nil {
+	end, err := netip.ParseAddr(strings.TrimSpace(fs[1]))
+	if err != nil {
 		return nil, fmt.Errorf("invalid IP range %q: invalid end IP %q", cidr, fs[1])
 	}
 
-	if bytes.Compare(start, end) > 0 {
+	if start.Compare(end) > 0 {
 		return nil, fmt.Errorf("invalid IP range %q: start IP %q is after the end IP %q", cidr, start, end)
 	}
 
-	var ret []*net.IPNet
-	for _, pfx := range ipaddr.Summarize(start, end) {
-		n := &net.IPNet{
-			IP:   pfx.IP,
-			Mask: pfx.Mask,
+	var ret []netip.Prefix
+	for _, pfx := range ipaddr.Summarize(start.AsSlice(), end.AsSlice()) {
+		p, err := netip.ParsePrefix(pfx.String())
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse summarized prefix %q: %v", pfx.String(), err)
 		}
-		ret = append(ret, n)
+		ret = append(ret, p)
 	}
 	return ret, nil
 }
 
-func cidrsOverlap(a, b *net.IPNet) bool {
-	return cidrContainsCIDR(a, b) || cidrContainsCIDR(b, a)
+func cidrsOverlap(a, b netip.Prefix) bool {
+	return a.Overlaps(b)
 }
 
-func cidrContainsCIDR(outer, inner *net.IPNet) bool {
-	ol, _ := outer.Mask.Size()
-	il, _ := inner.Mask.Size()
-	if ol == il && outer.IP.Equal(inner.IP) {
-		return true
-	}
-	if ol < il && outer.Contains(inner.IP) {
-		return true
-	}
-	return false
+func cidrContainsCIDR(outer, inner netip.Prefix) bool {
+	return outer.Contains(inner.Addr()) && outer.Bits() <= inner.Bits()
 }
 
-func lowestMask(cidrs []*net.IPNet) int {
+func lowestMask(cidrs []netip.Prefix) int {
 	if len(cidrs) == 0 {
 		return 0
 	}
-	lowest, _ := cidrs[0].Mask.Size()
+	lowest := cidrs[0].Bits()
 	for _, c := range cidrs {
-		s, _ := c.Mask.Size()
-		if lowest > s {
-			lowest = s
+		if lowest > c.Bits() {
+			lowest = c.Bits()
 		}
 	}
 	return lowest

@@ -11,6 +11,7 @@ import (
 	"hash/crc32"
 	"io"
 	"net"
+	"net/netip"
 	"os"
 	"sync"
 	"syscall"
@@ -41,7 +42,7 @@ type session struct {
 	closed         bool
 	conn           net.Conn
 	actualHoldTime time.Duration
-	nextHop        net.IP
+	nextHop        netip.Addr
 	advertised     map[string]*bgp.Advertisement
 	new            map[string]*bgp.Advertisement
 
@@ -190,7 +191,7 @@ func (s *session) sendUpdates() bool {
 			stats.UpdateSent(s.peerName)
 		}
 
-		wdr := []*net.IPNet{}
+		wdr := []netip.Prefix{}
 		for c, adv := range s.advertised {
 			if s.new[c] == nil {
 				wdr = append(wdr, adv.Prefix)
@@ -239,10 +240,15 @@ func (s *session) connect() error {
 		conn.Close()
 		return fmt.Errorf("getting local addr for default nexthop to %q: %s", s.PeerAddress, err)
 	}
-	s.nextHop = addr.IP
+	nextHopAddr, ok := netip.AddrFromSlice(addr.IP)
+	if !ok {
+		conn.Close()
+		return fmt.Errorf("invalid local IP address for nexthop: %s", addr.IP)
+	}
+	s.nextHop = nextHopAddr
 
 	routerID := s.RouterID
-	if routerID == nil {
+	if !routerID.IsValid() {
 		routerID, err = getRouterID(s.nextHop, s.CurrentNode)
 		if err != nil {
 			return err
@@ -298,19 +304,24 @@ func (s *session) connect() error {
 	return nil
 }
 
-func hashRouterID(hostname string) (net.IP, error) {
+func hashRouterID(hostname string) (netip.Addr, error) {
 	buf := new(bytes.Buffer)
 	err := binary.Write(buf, binary.LittleEndian, crc32.ChecksumIEEE([]byte(hostname)))
 	if err != nil {
-		return nil, err
+		return netip.Addr{}, err
 	}
-	return net.IP(buf.Bytes()), nil
+
+	addr, ok := netip.AddrFromSlice(buf.Bytes())
+	if !ok {
+		return netip.Addr{}, fmt.Errorf("failed to convert hash to IP address")
+	}
+	return addr, nil
 }
 
 // Ipv4; Use the address as-is.
 // Ipv6; Pick the first ipv4 address on the same interface as the address.
-func getRouterID(addr net.IP, myNode string) (net.IP, error) {
-	if addr.To4() != nil {
+func getRouterID(addr netip.Addr, myNode string) (netip.Addr, error) {
+	if addr.Is4() {
 		return addr, nil
 	}
 
@@ -324,28 +335,37 @@ func getRouterID(addr net.IP, myNode string) (net.IP, error) {
 			continue
 		}
 		for _, a := range addrs {
-			var ip net.IP
+			var netSlice []byte
 			switch v := a.(type) {
 			case *net.IPNet:
-				ip = v.IP
+				netSlice = v.IP
 			case *net.IPAddr:
-				ip = v.IP
+				netSlice = v.IP
 			}
 
-			if ip.Equal(addr) {
+			ipAddr, ok := netip.AddrFromSlice(netSlice)
+			if !ok {
+				continue
+			}
+
+			if ipAddr == addr {
 				// This is the interface.
 				// Loop through the addresses again and search for ipv4
 				for _, a := range addrs {
-					var ip net.IP
+					var netSlice []byte
 					switch v := a.(type) {
 					case *net.IPNet:
-						ip = v.IP
+						netSlice = v.IP
 					case *net.IPAddr:
-						ip = v.IP
+						netSlice = v.IP
 					}
-					if ip.To4() != nil {
-						return ip, nil
+
+					ipAddr, ok := netip.AddrFromSlice(netSlice)
+					if !ok || !ipAddr.Is4() {
+						continue
 					}
+
+					return ipAddr, nil
 				}
 				return hashRouterID(myNode)
 			}
@@ -449,7 +469,7 @@ func (s *session) consumeBGP(conn io.ReadCloser) {
 }
 
 func validate(adv *bgp.Advertisement) error {
-	if adv.Prefix.IP.To4() == nil {
+	if !adv.Prefix.Addr().Is4() {
 		return fmt.Errorf("cannot advertise non-v4 prefix %q", adv.Prefix)
 	}
 
@@ -515,13 +535,13 @@ func (s *session) Close() error {
 // proper TCP MD5 options when the password is not empty. Works by manipulating
 // the low level FD's, skipping the net.Conn API as it has not hooks to set
 // the necessary sockopts for TCP MD5.
-func dialMD5(ctx context.Context, addr string, srcAddr net.IP, password string) (net.Conn, error) {
+func dialMD5(ctx context.Context, addr string, srcAddr netip.Addr, password string) (net.Conn, error) {
 	// If srcAddr exists on any of the local network interfaces, use it as the
 	// source address of the TCP socket. Otherwise, use the IPv6 unspecified
 	// address ("::") to let the kernel figure out the source address.
 	// NOTE: On Linux, "::" also includes "0.0.0.0" (all IPv4 addresses).
 	a := "[::]"
-	if srcAddr != nil {
+	if srcAddr.IsValid() {
 		ifs, err := net.Interfaces()
 		if err != nil {
 			return nil, fmt.Errorf("querying local interfaces: %w", err)
@@ -546,7 +566,20 @@ func dialMD5(ctx context.Context, addr string, srcAddr net.IP, password string) 
 
 	var family int
 	var ra, la unix.Sockaddr
-	if raddr.IP.To4() != nil {
+
+	// Convert raddr.IP to netip.Addr
+	raddrIP, ok := netip.AddrFromSlice(raddr.IP)
+	if !ok {
+		return nil, fmt.Errorf("invalid remote IP address: %s", raddr.IP)
+	}
+
+	// We only need to ensure laddr.IP is valid, we don't need to use the netip.Addr
+	_, ok = netip.AddrFromSlice(laddr.IP)
+	if !ok {
+		return nil, fmt.Errorf("invalid local IP address: %s", laddr.IP)
+	}
+
+	if raddrIP.Is4() {
 		family = unix.AF_INET
 		rsockaddr := &unix.SockaddrInet4{Port: raddr.Port}
 		copy(rsockaddr.Addr[:], raddr.IP.To4())
@@ -597,7 +630,7 @@ func dialMD5(ctx context.Context, addr string, srcAddr net.IP, password string) 
 	}()
 
 	if password != "" {
-		sig, err := buildTCPMD5Sig(raddr.IP, password)
+		sig, err := buildTCPMD5Sig(raddrIP, password)
 		if err != nil {
 			return nil, err
 		}
@@ -680,14 +713,14 @@ func dialMD5(ctx context.Context, addr string, srcAddr net.IP, password string) 
 	}
 }
 
-func buildTCPMD5Sig(addr net.IP, key string) (*unix.TCPMD5Sig, error) {
+func buildTCPMD5Sig(addr netip.Addr, key string) (*unix.TCPMD5Sig, error) {
 	t := unix.TCPMD5Sig{}
-	if addr.To4() != nil {
+	if addr.Is4() {
 		t.Addr.Family = unix.AF_INET
-		copy(t.Addr.Data[2:], addr.To4())
+		copy(t.Addr.Data[2:], addr.AsSlice())
 	} else {
 		t.Addr.Family = unix.AF_INET6
-		copy(t.Addr.Data[6:], addr.To16())
+		copy(t.Addr.Data[6:], addr.AsSlice())
 	}
 
 	var err error
@@ -702,7 +735,7 @@ func buildTCPMD5Sig(addr net.IP, key string) (*unix.TCPMD5Sig, error) {
 
 // localAddressExists returns true if the address addr exists on any of the
 // network interfaces in the ifs slice.
-func localAddressExists(ifs []net.Interface, addr net.IP) bool {
+func localAddressExists(ifs []net.Interface, addr netip.Addr) bool {
 	for _, i := range ifs {
 		addresses, err := i.Addrs()
 		if err != nil {
@@ -710,15 +743,18 @@ func localAddressExists(ifs []net.Interface, addr net.IP) bool {
 		}
 
 		for _, a := range addresses {
-			ip, ok := a.(*net.IPNet)
+			ipnet, ok := a.(*net.IPNet)
 			if !ok {
 				continue
 			}
-			if ip.IP.Equal(addr) {
+			ipAddr, ok := netip.AddrFromSlice(ipnet.IP)
+			if !ok {
+				continue
+			}
+			if ipAddr == addr {
 				return true
 			}
 		}
 	}
-
 	return false
 }

@@ -19,7 +19,7 @@ func TestARPResponder(t *testing.T) {
 	tests := []struct {
 		name           string
 		dstMAC         net.HardwareAddr
-		arpTgt         net.IP
+		arpTgt         netip.Addr
 		arpOp          arp.Operation
 		shouldAnnounce announceFunc
 		reason         dropReason
@@ -55,7 +55,7 @@ func TestARPResponder(t *testing.T) {
 		},
 		{
 			name:   "shouldAnnounce allows request",
-			arpTgt: net.IPv4(192, 168, 1, 20),
+			arpTgt: netip.MustParseAddr("192.168.1.20"),
 			shouldAnnounce: func(ip netip.Addr, intf string) dropReason {
 				if ip == netip.MustParseAddr("192.168.1.20") {
 					return dropReasonNone
@@ -81,8 +81,8 @@ func TestARPResponder(t *testing.T) {
 			if tt.dstMAC == nil {
 				tt.dstMAC = a.hardwareAddr
 			}
-			if tt.arpTgt == nil {
-				tt.arpTgt = net.IPv4(192, 168, 1, 10)
+			if !tt.arpTgt.IsValid() {
+				tt.arpTgt = netip.MustParseAddr("192.168.1.10")
 			}
 			if tt.arpOp == 0 {
 				tt.arpOp = arp.OperationRequest
@@ -93,7 +93,8 @@ func TestARPResponder(t *testing.T) {
 				Source:      net.HardwareAddr{1, 2, 3, 4, 5, 6},
 				EtherType:   ethernet.EtherTypeARP,
 			}
-			pkt, err := arp.NewPacket(tt.arpOp, eth.Source, net.IPv4(192, 168, 1, 1), tt.dstMAC, tt.arpTgt)
+			sourceIP := netip.MustParseAddr("192.168.1.1").AsSlice()
+			pkt, err := arp.NewPacket(tt.arpOp, eth.Source, sourceIP, tt.dstMAC, tt.arpTgt.AsSlice())
 			if err != nil {
 				t.Fatalf("failed to make ARP packet: %s", err)
 			}
