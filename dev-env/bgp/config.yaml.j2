@@ -9,6 +9,7 @@ spec:
   myASN: 64512
   peerASN: 64512
   peerAddress: {{ peer_address }}
+  bfdProfile: bfd-profile
 {% endfor %} 
 ---
 apiVersion: metallb.io/v1beta1
@@ -25,4 +26,10 @@ apiVersion: metallb.io/v1beta1
 kind: BGPAdvertisement
 metadata:
   name: empty
+  namespace: metallb-system
+---
+apiVersion: metallb.io/v1beta1
+kind: BFDProfile
+metadata:
+  name: bfd-profile
   namespace: metallb-system

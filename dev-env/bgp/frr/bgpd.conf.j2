@@ -19,6 +19,8 @@ router bgp 64512
   {% for node_ip in node_ip_by_family[ip_family] %}
   neighbor {{ node_ip }} activate
   neighbor {{ node_ip }} next-hop-self
+  neighbor {{ node_ip }} bfd
+
   {% if ip_family == "ipv6" %}
   neighbor {{ node_ip }} route-map IPV6GLOBAL in
   {% endif%}
