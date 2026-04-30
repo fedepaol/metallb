@@ -191,6 +191,11 @@ spec:
             defaultMode: 256
             name: metallb-excludel2
       {{- end }}
+      {{- if .Values.speaker.memberlist.configMapName }}
+        - name: memberlist-config
+          configMap:
+            name: {{ .Values.speaker.memberlist.configMapName }}
+      {{- end }}
       {{- if .Values.speaker.frr.enabled }}
         - name: frr-sockets
           emptyDir: {}
@@ -381,7 +386,7 @@ spec:
             - ALL
             add:
             - NET_RAW
-        {{- if or .Values.speaker.frr.enabled .Values.speaker.memberlist.enabled .Values.speaker.excludeInterfaces.enabled .Values.tls.metricsTLSSecret }}
+        {{- if or .Values.speaker.frr.enabled .Values.speaker.memberlist.enabled .Values.speaker.excludeInterfaces.enabled .Values.tls.metricsTLSSecret .Values.speaker.memberlist.configMapName }}
         volumeMounts:
           {{- if .Values.speaker.memberlist.enabled }}
           - name: memberlist
@@ -398,6 +403,11 @@ spec:
           {{- if .Values.tls.metricsTLSSecret }}
           - name: metrics-certs
             mountPath: /etc/metrics
+            readOnly: true
+          {{- end }}
+          {{- if .Values.speaker.memberlist.configMapName }}
+          - name: memberlist-config
+            mountPath: /etc/metallb/memberlist
             readOnly: true
           {{- end }}
         {{- end }}

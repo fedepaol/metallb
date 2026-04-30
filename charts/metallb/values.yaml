@@ -260,6 +260,11 @@ speaker:
     mlBindPort: 7946
     mlBindAddrOverride: ""
     mlSecretKeyPath: "/etc/ml_secret_key"
+    # Optional name of a ConfigMap containing a memberlist configuration
+    # file (key: config.json). When set, the ConfigMap is mounted into the
+    # speaker pod at /etc/metallb/memberlist and overrides the default
+    # memberlist settings. If not set, the built-in defaults are used.
+    configMapName: ""
   excludeInterfaces:
     enabled: true
   # ignore the exclude-from-external-loadbalancer label

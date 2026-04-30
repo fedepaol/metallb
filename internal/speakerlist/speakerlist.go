@@ -14,6 +14,9 @@ package speakerlist
 
 import (
 	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"os"
 	"strconv"
 	"sync"
 	"time"
@@ -24,6 +27,91 @@ import (
 	"github.com/go-kit/log/level"
 	"github.com/hashicorp/memberlist"
 )
+
+// memberlistConfigPath is the well-known path where an optional memberlist
+// configuration file may be mounted (e.g. from a ConfigMap).
+const memberlistConfigPath = "/etc/metallb/memberlist/config.json"
+
+// memberlistFileConfig is the complete set of memberlist.Config fields exposed
+// for external configuration via a ConfigMap file. All fields are required when
+// the file is present — omitting a field is an error. Duration values must use
+// Go duration string format (e.g. "5s", "200ms").
+type memberlistFileConfig struct {
+	TCPTimeout              string `json:"TCPTimeout"`
+	IndirectChecks          int    `json:"IndirectChecks"`
+	RetransmitMult          int    `json:"RetransmitMult"`
+	SuspicionMult           int    `json:"SuspicionMult"`
+	SuspicionMaxTimeoutMult int    `json:"SuspicionMaxTimeoutMult"`
+	PushPullInterval        string `json:"PushPullInterval"`
+	ProbeTimeout            string `json:"ProbeTimeout"`
+	ProbeInterval           string `json:"ProbeInterval"`
+	DisableTcpPings         bool   `json:"DisableTcpPings"`
+	AwarenessMaxMultiplier  int    `json:"AwarenessMaxMultiplier"`
+	GossipNodes             int    `json:"GossipNodes"`
+	GossipInterval          string `json:"GossipInterval"`
+	GossipToTheDeadTime     string `json:"GossipToTheDeadTime"`
+	GossipVerifyIncoming    bool   `json:"GossipVerifyIncoming"`
+	GossipVerifyOutgoing    bool   `json:"GossipVerifyOutgoing"`
+	EnableCompression       bool   `json:"EnableCompression"`
+	HandoffQueueDepth       int    `json:"HandoffQueueDepth"`
+	UDPBufferSize           int    `json:"UDPBufferSize"`
+	QueueCheckInterval      string `json:"QueueCheckInterval"`
+}
+
+// tryToLoadMemberListConfig returns cfg unchanged if the file at path does not
+// exist. If the file exists it is parsed and its values are applied to cfg,
+// which is then returned. Any read or parse error is returned as an error.
+func tryToLoadMemberListConfig(path string, cfg *memberlist.Config, logger log.Logger) (*memberlist.Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return cfg, nil
+		}
+		return nil, fmt.Errorf("reading memberlist config file %s: %w", path, err)
+	}
+
+	level.Info(logger).Log("op", "startup", "msg", "loading memberlist config from file", "path", path)
+
+	var fc memberlistFileConfig
+	if err := json.Unmarshal(data, &fc); err != nil {
+		return nil, fmt.Errorf("parsing memberlist config file %s: %w", path, err)
+	}
+
+	cfg.IndirectChecks = fc.IndirectChecks
+	cfg.RetransmitMult = fc.RetransmitMult
+	cfg.SuspicionMult = fc.SuspicionMult
+	cfg.SuspicionMaxTimeoutMult = fc.SuspicionMaxTimeoutMult
+	cfg.GossipNodes = fc.GossipNodes
+	cfg.AwarenessMaxMultiplier = fc.AwarenessMaxMultiplier
+	cfg.HandoffQueueDepth = fc.HandoffQueueDepth
+	cfg.UDPBufferSize = fc.UDPBufferSize
+	cfg.DisableTcpPings = fc.DisableTcpPings
+	cfg.GossipVerifyIncoming = fc.GossipVerifyIncoming
+	cfg.GossipVerifyOutgoing = fc.GossipVerifyOutgoing
+	cfg.EnableCompression = fc.EnableCompression
+
+	for _, item := range []struct {
+		dst *time.Duration
+		src string
+		key string
+	}{
+		{&cfg.TCPTimeout, fc.TCPTimeout, "TCPTimeout"},
+		{&cfg.PushPullInterval, fc.PushPullInterval, "PushPullInterval"},
+		{&cfg.ProbeTimeout, fc.ProbeTimeout, "ProbeTimeout"},
+		{&cfg.ProbeInterval, fc.ProbeInterval, "ProbeInterval"},
+		{&cfg.GossipInterval, fc.GossipInterval, "GossipInterval"},
+		{&cfg.GossipToTheDeadTime, fc.GossipToTheDeadTime, "GossipToTheDeadTime"},
+		{&cfg.QueueCheckInterval, fc.QueueCheckInterval, "QueueCheckInterval"},
+	} {
+		d, err := time.ParseDuration(item.src)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s %q in memberlist config file: %w", item.key, item.src, err)
+		}
+		*item.dst = d
+	}
+
+	return cfg, nil
+}
 
 // SpeakerListInfo contains information about available speaker nodes.
 type SpeakerListInfo struct {
@@ -69,6 +157,12 @@ func New(logger log.Logger, nodeName, bindAddr, bindPort, secret, namespace, lab
 	mconfig := memberlist.DefaultLANConfig()
 	if WANNetwork {
 		mconfig = memberlist.DefaultWANConfig()
+	}
+
+	mconfig, err := tryToLoadMemberListConfig(memberlistConfigPath, mconfig, logger)
+	if err != nil {
+		level.Error(logger).Log("op", "startup", "error", err, "msg", "failed to load memberlist config")
+		return nil, err
 	}
 
 	// mconfig.Name MUST be equal to the spec.nodeName field of the speaker pod as we match it
@@ -335,3 +429,4 @@ func (sl *SpeakerList) memberlistWatchEvents() {
 		}
 	}
 }
+
