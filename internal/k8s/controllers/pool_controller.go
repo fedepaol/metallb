@@ -27,6 +27,7 @@ import (
 	metallbv1beta1 "go.universe.tf/metallb/api/v1beta1"
 	"go.universe.tf/metallb/internal/config"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -199,7 +200,12 @@ func (r *PoolReconciler) reportCondition(ctx context.Context, conditionErr error
 		},
 	}
 
-	if err := r.Status().Patch(ctx, configStatus, client.Apply, client.FieldOwner("poolReconciler"), client.ForceOwnership); err != nil {
+	err := r.Status().Patch(ctx, configStatus, client.Apply, client.FieldOwner("poolReconciler"), client.ForceOwnership)
+	if apierrors.IsNotFound(err) {
+		level.Info(r.Logger).Log("controller", "PoolReconciler", "message", "ConfigurationState not yet created, skipping condition report")
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("patch %s/%s: %w", r.Namespace, r.ConfigStateName, err)
 	}
 

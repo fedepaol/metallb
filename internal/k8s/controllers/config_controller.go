@@ -342,7 +342,12 @@ func (r *ConfigReconciler) reportCondition(ctx context.Context, conditionErr err
 		},
 	}
 
-	if err := r.Status().Patch(ctx, configStatus, client.Apply, client.FieldOwner("configReconciler"), client.ForceOwnership); err != nil {
+	err := r.Status().Patch(ctx, configStatus, client.Apply, client.FieldOwner("configReconciler"), client.ForceOwnership)
+	if apierrors.IsNotFound(err) {
+		level.Info(r.Logger).Log("controller", "ConfigReconciler", "message", "ConfigurationState not yet created, skipping condition report")
+		return nil
+	}
+	if err != nil {
 		return fmt.Errorf("patch %s/%s: %w", r.Namespace, r.ConfigStateName, err)
 	}
 
