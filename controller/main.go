@@ -158,24 +158,25 @@ func (c *controller) SetPools(l log.Logger, pools *config.Pools) controllers.Syn
 
 func main() {
 	var (
-		port                = flag.Int("port", 9120, "HTTPS listening port for Prometheus metrics")
-		namespace           = flag.String("namespace", os.Getenv("METALLB_NAMESPACE"), "config / memberlist secret namespace")
-		mlSecret            = flag.String("ml-secret-name", os.Getenv("METALLB_ML_SECRET_NAME"), "name of the memberlist secret to create")
-		deployName          = flag.String("deployment", os.Getenv("METALLB_DEPLOYMENT"), "name of the MetalLB controller Deployment")
-		logLevel            = flag.String("log-level", "info", fmt.Sprintf("log level. must be one of: [%s]", logging.Levels.String()))
-		pprofBindAddress    = flag.String("pprof-bind-address", "", "Bind address for pprof endpoint (e.g. 127.0.0.1:6060). Empty disables pprof.")
-		disableCertRotation = flag.Bool("disable-cert-rotation", false, "disable automatic generation and rotation of webhook TLS certificates/keys")
-		certDir             = flag.String("cert-dir", "/tmp/k8s-webhook-server/serving-certs", "The directory where certs are stored")
-		certServiceName     = flag.String("cert-service-name", "metallb-webhook-service", "The service name used to generate the TLS cert's hostname")
-		loadBalancerClass   = flag.String("lb-class", "", "load balancer class. When enabled, metallb will handle only services whose spec.loadBalancerClass matches the given lb class")
-		webhookMode         = flag.String("webhook-mode", "enabled", "webhook mode: can be enabled, disabled or only webhook if we want the controller to act as webhook endpoint only")
-		webhookSecretName   = flag.String("webhook-secret", "metallb-webhook-cert", "webhook secret: the name of webhook secret, default is metallb-webhook-cert")
-		myPod               = flag.String("pod-name", os.Getenv("METALLB_POD_NAME"), "name of this MetalLB controller pod")
-		webhookHTTP2        = flag.Bool("webhook-http2", false, "enables http2 for the webhook endpoint")
-		tlsMinVersion       = flag.String("tls-min-version", "", "Minimum TLS version (VersionTLS12 or VersionTLS13). If empty, defaults to VersionTLS13.")
-		tlsCipherSuites     = flag.String("tls-cipher-suites", "", "Comma-separated list of TLS cipher suites. Only applies to TLS 1.2. If empty, uses Go defaults.")
-		tlsCurvePreferences = flag.String("tls-curve-preferences", "", "Comma-separated list of numeric CurveID values (see https://pkg.go.dev/crypto/tls#CurveID). If empty, uses Go defaults.")
-		metricsCertDir      = flag.String("metrics-cert-dir", "", "Directory containing tls.crt and tls.key for metrics TLS. If empty, auto-generated self-signed cert is used.")
+		port                   = flag.Int("port", 9120, "HTTPS listening port for Prometheus metrics")
+		namespace              = flag.String("namespace", os.Getenv("METALLB_NAMESPACE"), "config / memberlist secret namespace")
+		mlSecret               = flag.String("ml-secret-name", os.Getenv("METALLB_ML_SECRET_NAME"), "name of the memberlist secret to create")
+		deployName             = flag.String("deployment", os.Getenv("METALLB_DEPLOYMENT"), "name of the MetalLB controller Deployment")
+		logLevel               = flag.String("log-level", "info", fmt.Sprintf("log level. must be one of: [%s]", logging.Levels.String()))
+		pprofBindAddress       = flag.String("pprof-bind-address", "", "Bind address for pprof endpoint (e.g. 127.0.0.1:6060). Empty disables pprof.")
+		healthProbePort        = flag.Int("health-probe-port", k8s.DefaultHealthProbePort, "Port for health probe endpoint")
+		disableCertRotation    = flag.Bool("disable-cert-rotation", false, "disable automatic generation and rotation of webhook TLS certificates/keys")
+		certDir                = flag.String("cert-dir", "/tmp/k8s-webhook-server/serving-certs", "The directory where certs are stored")
+		certServiceName        = flag.String("cert-service-name", "metallb-webhook-service", "The service name used to generate the TLS cert's hostname")
+		loadBalancerClass      = flag.String("lb-class", "", "load balancer class. When enabled, metallb will handle only services whose spec.loadBalancerClass matches the given lb class")
+		webhookMode            = flag.String("webhook-mode", "enabled", "webhook mode: can be enabled, disabled or only webhook if we want the controller to act as webhook endpoint only")
+		webhookSecretName      = flag.String("webhook-secret", "metallb-webhook-cert", "webhook secret: the name of webhook secret, default is metallb-webhook-cert")
+		myPod                  = flag.String("pod-name", os.Getenv("METALLB_POD_NAME"), "name of this MetalLB controller pod")
+		webhookHTTP2           = flag.Bool("webhook-http2", false, "enables http2 for the webhook endpoint")
+		tlsMinVersion          = flag.String("tls-min-version", "", "Minimum TLS version (VersionTLS12 or VersionTLS13). If empty, defaults to VersionTLS13.")
+		tlsCipherSuites        = flag.String("tls-cipher-suites", "", "Comma-separated list of TLS cipher suites. Only applies to TLS 1.2. If empty, uses Go defaults.")
+		tlsCurvePreferences    = flag.String("tls-curve-preferences", "", "Comma-separated list of numeric CurveID values (see https://pkg.go.dev/crypto/tls#CurveID). If empty, uses Go defaults.")
+		metricsCertDir         = flag.String("metrics-cert-dir", "", "Directory containing tls.crt and tls.key for metrics TLS. If empty, auto-generated self-signed cert is used.")
 	)
 	flag.Parse()
 
@@ -223,11 +224,12 @@ func main() {
 	validation := config.ValidationFor(bgpType)
 
 	cfg := &k8s.Config{
-		ProcessName:      "metallb-controller",
-		PodName:          *myPod,
-		MetricsPort:      *port,
-		PprofBindAddress: *pprofBindAddress,
-		Logger:           logger,
+		ProcessName:            "metallb-controller",
+		PodName:                *myPod,
+		MetricsPort:            *port,
+		PprofBindAddress:       *pprofBindAddress,
+		HealthProbeBindAddress: fmt.Sprintf(":%d", *healthProbePort),
+		Logger:                 logger,
 
 		Namespace: *namespace,
 		Listener: k8s.Listener{
